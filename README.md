@@ -1,16 +1,39 @@
-# React + Vite
+Voici le contexte complet de mon projet web intitulé "Asia Travel Planner". Ton rôle est d'agir en tant que développeur expert React, Tailwind CSS et Supabase pour m'aider à maintenir, déboguer ou ajouter des fonctionnalités à cette application. Ne génère pas de code tout de suite, contente-toi de lire ce contexte et de me demander ce que je souhaite modifier.
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+### 📋 Concept de l'application
+C'est un planificateur de voyage interactif pour les backpackers (spécialisé pour l'Asie). Il permet de gérer un itinéraire étape par étape avec une carte interactive, un suivi de budget, des checklists, un carnet de notes et un coffre-fort de documents. L'application possède un mode "Admin" (sécurisé par mot de passe) et un mode "Visiteur" (lecture seule) pour partager le voyage avec ses proches.
 
-Currently, two official plugins are available:
+### 🛠️ Stack Technique
+- Frontend : React 19, Vite, Tailwind CSS v4
+- Backend / BaaS : Supabase (Database PostgreSQL, Storage, Authentication)
+- Carte interactive : Leaflet & React-Leaflet (Fond de carte : CartoDB Positron)
+- Drag & Drop : @hello-pangea/dnd
+- Icônes : Lucide-react
+- PWA : vite-plugin-pwa (pour le support hors-ligne et l'installation mobile)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### 🗄️ Architecture de la Base de Données (Supabase)
+Toutes les tables sont sécurisées par RLS (Row Level Security). Les visiteurs peuvent lire `steps` et `notes`, mais seul l'admin authentifié peut modifier les données et accéder au Storage `documents`.
+1. `steps` : id, city, country, duration, lat, lng, lodging_info, transport_info, budget_estimated, budget_spent, checklist (JSONB).
+2. `notes` : id, step_id, author_name, content, created_at.
+3. `step_documents` : id, step_id, file_name, file_url, created_at.
+4. Storage : Bucket `documents` sécurisé.
 
-## React Compiler
+### 🧩 Composants Principaux
+- `Timeline.jsx` : Le composant principal. Affiche la vue scindée : Timeline verticale (à gauche) et Carte + Résumé (à droite). Gère le Drag & Drop, le mode sombre, l'export PDF (via des classes `print:hidden`), et l'authentification. Calcule les dates et les distances (Haversine) entre les étapes.
+- `RouteMap.jsx` : Affiche les marqueurs de villes et trace une Polyline. Génère des icônes d'Emoji dynamiques au milieu des tracés (ex: ✈️, 🚌) en analysant le texte de `transport_info`.
+- `StepModal.jsx` : Le "couteau suisse" de chaque étape (4 onglets) :
+  - Notes : Chat collaboratif.
+  - Checklist : Tâches spécifiques à l'étape stockées en JSONB.
+  - Logistique : Convertisseur de devises (API `open.er-api.com`), Hébergement, Transport, Budget prévu vs réel.
+  - Fichiers : Upload/Download liés au Storage Supabase.
+  - Header : Affiche la météo en temps réel via l'API `open-meteo.com` (traduit en Emojis) et permet l'édition de la ville/durée.
+- `TripSummary.jsx` : Tableau de bord global (Total des jours, pays, étapes, et jauge de progression du budget).
+- `BackpackModal.jsx` : Checklist globale du sac à dos sauvegardée dans le `localStorage` du navigateur.
+- `Auth.jsx` : Mini-formulaire de connexion (Email/Mot de passe) gérant la session Supabase.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 🎨 UI/UX & Spécificités
+- L'UI est moderne avec des tons `slate`, `blue` et `emerald`.
+- Animations CSS pures configurées (`animate-modal-pop` et `animate-fade-in`).
+- Mode "Lecture seule" (Read-Only) automatique : si `session` est null, tous les formulaires, boutons de suppression et le Drag&Drop sont désactivés ou masqués.
 
-## Expanding the Oxlint configuration
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.

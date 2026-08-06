@@ -1,89 +1,146 @@
 import { useState, useEffect } from 'react';
-import { X, CheckSquare, PlusCircle, Trash2, Backpack } from 'lucide-react';
+import { supabase } from '../config/supabaseClient'; 
+import { CheckSquare, Square, Trash2, Plus } from 'lucide-react'; // Icônes[cite: 1]
 
-export default function BackpackModal({ onClose }) {
+export default function BackpackModal({ session, onClose }) {
   const [items, setItems] = useState([]);
-  const [newItem, setNewItem] = useState('');
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemCategory, setNewItemCategory] = useState('Général');
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Charger la checklist depuis le navigateur
+  // Le mode visiteur bloque les modifications[cite: 1]
+  const isReadOnly = !session; 
+
   useEffect(() => {
-    const saved = localStorage.getItem('travel_backpack');
-    if (saved) setItems(JSON.parse(saved));
+    fetchBackpackItems();
   }, []);
 
-  const save = (newItems) => {
-    setItems(newItems);
-    localStorage.setItem('travel_backpack', JSON.stringify(newItems));
+  const fetchBackpackItems = async () => {
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from('backpack_items')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setItems(data);
+    }
+    setIsLoading(false);
   };
 
-  const handleAdd = (e) => {
+  const addItem = async (e) => {
     e.preventDefault();
-    if (!newItem.trim()) return;
-    save([...items, { id: Date.now(), text: newItem, packed: false }]);
-    setNewItem('');
+    if (isReadOnly || !newItemName.trim()) return;
+
+    const { data, error } = await supabase
+      .from('backpack_items')
+      .insert([{ name: newItemName, category: newItemCategory }])
+      .select()
+      .single();
+
+    if (!error && data) {
+      setItems([data, ...items]);
+      setNewItemName('');
+    }
   };
 
-  const toggleItem = (id) => {
-    save(items.map(item => item.id === id ? { ...item, packed: !item.packed } : item));
+  const toggleItem = async (id, currentStatus) => {
+    if (isReadOnly) return;
+
+    // Mise à jour optimiste (UI)
+    setItems(items.map(item => item.id === id ? { ...item, is_packed: !currentStatus } : item));
+
+    // Mise à jour BDD
+    await supabase
+      .from('backpack_items')
+      .update({ is_packed: !currentStatus })
+      .eq('id', id);
   };
 
-  const deleteItem = (id) => {
-    save(items.filter(item => item.id !== id));
+  const deleteItem = async (id) => {
+    if (isReadOnly) return;
+    
+    setItems(items.filter(item => item.id !== id));
+    await supabase.from('backpack_items').delete().eq('id', id);
   };
-
-  const progress = items.length > 0 ? Math.round((items.filter(i => i.packed).length / items.length) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm print:hidden animate-fade-in">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[85vh] overflow-hidden border border-slate-100 animate-modal-pop">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-2xl p-6 animate-modal-pop overflow-y-auto max-h-[90vh]">
         
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
-              <Backpack size={24} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">Mon Sac à Dos</h2>
-              <div className="w-32 bg-slate-200 rounded-full h-1.5 mt-1">
-                <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${progress}%` }}></div>
-              </div>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-2 rounded-full transition-colors">
-            <X size={20} />
-          </button>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">🎒 Sac à dos</h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-700">Fermer</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
-          <div className="space-y-2">
-            {items.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-4 italic">Ton sac est vide. Commence ta liste !</p>
-            ) : (
-              items.map(item => (
-                <div key={item.id} className={`flex items-center justify-between p-3 border rounded-xl transition-all ${item.packed ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-200 shadow-sm hover:border-blue-300'}`}>
-                  <div className="flex items-center gap-3 overflow-hidden cursor-pointer flex-1" onClick={() => toggleItem(item.id)}>
-                    <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${item.packed ? 'bg-blue-500 border-blue-500' : 'bg-white border-slate-300'}`}>
-                      {item.packed && <CheckSquare size={14} className="text-white" />}
-                    </div>
-                    <span className={`text-sm truncate transition-all ${item.packed ? 'text-slate-400 line-through' : 'text-slate-700 font-medium'}`}>
-                      {item.text}
-                    </span>
-                  </div>
-                  <button onClick={() => deleteItem(item.id)} className="text-slate-400 hover:text-red-500 p-1.5 rounded-full hover:bg-red-50 ml-2 transition-colors">
-                    <Trash2 size={16} />
-                  </button>
+        {/* Formulaire caché si Visiteur */}
+        {!isReadOnly && (
+          <form onSubmit={addItem} className="flex gap-2 mb-6">
+            <select 
+              value={newItemCategory} 
+              onChange={(e) => setNewItemCategory(e.target.value)}
+              className="border p-2 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-white"
+            >
+              <option value="Général">Général</option>
+              <option value="Vêtements">Vêtements</option>
+              <option value="Trousse de toilette">Trousse de toilette</option>
+              <option value="Tech">Tech</option>
+              <option value="Documents">Documents</option>
+            </select>
+            <input
+              type="text"
+              placeholder="Ajouter un objet..."
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              className="flex-1 border p-2 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-white"
+            />
+            <button type="submit" className="bg-emerald-500 text-white p-2 rounded-lg hover:bg-emerald-600 transition flex items-center gap-1">
+              <Plus size={20} /> Ajouter
+            </button>
+          </form>
+        )}
+
+        {isLoading ? (
+          <p className="text-center text-slate-500">Chargement...</p>
+        ) : (
+          <div className="space-y-4">
+            {/* Regroupement par catégorie (logique simple pour l'exemple) */}
+            {['Vêtements', 'Trousse de toilette', 'Tech', 'Documents', 'Général'].map(cat => {
+              const catItems = items.filter(i => i.category === cat);
+              if (catItems.length === 0) return null;
+              
+              return (
+                <div key={cat} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-100 dark:border-slate-700">
+                  <h3 className="font-semibold text-blue-600 dark:text-blue-400 mb-3">{cat}</h3>
+                  <ul className="space-y-2">
+                    {catItems.map(item => (
+                      <li key={item.id} className="flex items-center justify-between group">
+                        <button 
+                          onClick={() => toggleItem(item.id, item.is_packed)}
+                          disabled={isReadOnly}
+                          className={`flex items-center gap-2 ${item.is_packed ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-200'} ${isReadOnly ? 'cursor-default' : 'cursor-pointer'}`}
+                        >
+                          {item.is_packed ? <CheckSquare size={18} className="text-emerald-500" /> : <Square size={18} />}
+                          {item.name}
+                        </button>
+                        
+                        {!isReadOnly && (
+                          <button 
+                            onClick={() => deleteItem(item.id)}
+                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              ))
-            )}
+              );
+            })}
           </div>
-        </div>
-
-        <form onSubmit={handleAdd} className="p-4 border-t border-slate-100 bg-slate-50 flex gap-2">
-          <input type="text" placeholder="Ex: Passeport, Crème solaire..." value={newItem} onChange={(e) => setNewItem(e.target.value)} className="flex-1 border border-slate-200 bg-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500 shadow-sm" />
-          <button type="submit" disabled={!newItem.trim()} className="bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 disabled:bg-slate-300 transition-colors flex items-center gap-2 font-medium text-sm shadow-sm">
-            <PlusCircle size={18} />
-          </button>
-        </form>
+        )}
       </div>
     </div>
   );

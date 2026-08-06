@@ -1,86 +1,128 @@
-import { useState } from 'react';
-import { PlusCircle, Loader2 } from 'lucide-react';
+import { useState } from "react";
+import { Plus, MapPin, Network, CalendarDays } from "lucide-react";
+import { formatDaysNights } from "../utils/duration";
 
-export default function AddStepForm({ onAddStep }) {
-  const [city, setCity] = useState('');
-  const [country, setCountry] = useState('');
-  const [duration, setDuration] = useState('');
-  const [isSearching, setIsSearching] = useState(false); // État de chargement
+export default function AddStepForm({ onAddStep, parentSteps = [] }) {
+  const [city, setCity] = useState("");
+  const [country, setCountry] = useState("");
+  const [duration, setDuration] = useState("");
+  const [parentId, setParentId] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!city || !country || !duration) return;
 
-    setIsSearching(true);
     let lat = null;
     let lng = null;
-
     try {
-      // Magie : On demande les coordonnées à OpenStreetMap !
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(city)}&country=${encodeURIComponent(country)}&format=json`);
-      const data = await response.json();
-      
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${city},${country}`);
+      const data = await res.json();
       if (data && data.length > 0) {
         lat = parseFloat(data[0].lat);
-        lng = parseFloat(data[0].lon); // L'API s'en sert sous le nom "lon"
+        lng = parseFloat(data[0].lon);
       }
-    } catch (error) {
-      console.error("Erreur lors de la recherche des coordonnées :", error);
-    }
+    } catch (err) {}
 
     const newStep = {
       city,
       country,
       duration: parseInt(duration, 10),
       lat,
-      lng
+      lng,
+      parent_id: parentId === "" ? null : parentId,
     };
 
-    await onAddStep(newStep);
-
-    setCity('');
-    setCountry('');
-    setDuration('');
-    setIsSearching(false);
+    onAddStep(newStep);
+    setCity("");
+    setCountry("");
+    setDuration("");
+    setParentId("");
   };
 
+  const inputClass = "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
+
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
-      <h3 className="font-semibold text-gray-800 mb-4">Nouvelle Étape</h3>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <input 
-          type="text" 
-          placeholder="Ville (ex: Hanoï)" 
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 w-full focus:outline-none focus:border-blue-500"
-        />
-        <input 
-          type="text" 
-          placeholder="Pays (ex: Vietnam)" 
-          value={country}
-          onChange={(e) => setCountry(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 w-full focus:outline-none focus:border-blue-500"
-        />
-        <input 
-          type="number" 
-          placeholder="Durée (jours)" 
-          min="1"
-          value={duration}
-          onChange={(e) => setDuration(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 w-full focus:outline-none focus:border-blue-500"
-        />
+    <form onSubmit={handleSubmit} className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 transition-all">
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+          <Plus size={16} strokeWidth={3} />
+        </div>
+        <h3 className="text-base font-bold text-slate-900 dark:text-white">
+          Ajouter une étape
+        </h3>
       </div>
 
-      <button 
-        type="submit" 
-        disabled={isSearching}
-        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 px-4 rounded flex items-center justify-center gap-2 transition-colors cursor-pointer"
-      >
-        {isSearching ? <Loader2 size={20} className="animate-spin" /> : <PlusCircle size={20} />}
-        {isSearching ? "Localisation de la ville..." : "Ajouter à l'itinéraire"}
-      </button>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+        <div className="md:col-span-4 relative">
+          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+            <MapPin size={14} className="text-slate-400" />
+          </div>
+          <input
+            type="text"
+            placeholder="Ville (ex. Malang)"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            className={`${inputClass} pl-9`}
+            required
+          />
+        </div>
+
+        <div className="md:col-span-3">
+          <input
+            type="text"
+            placeholder="Pays (ex. Indonésie)"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            className={inputClass}
+            required
+          />
+        </div>
+
+        <div className="md:col-span-2 relative">
+          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+            <CalendarDays size={14} className="text-slate-400" />
+          </div>
+          <input
+            type="number"
+            placeholder="Jours"
+            min="0"
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            className={`${inputClass} pl-9`}
+            required
+          />
+        </div>
+
+        <div className="md:col-span-3 relative">
+          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+            <Network size={14} className="text-slate-400" />
+          </div>
+          <select
+            value={parentId}
+            onChange={(e) => setParentId(e.target.value)}
+            className={`${inputClass} pl-9 appearance-none cursor-pointer`}
+          >
+            <option value="">Camp de Base</option>
+            {parentSteps.map((parent) => (
+              <option key={parent.id} value={parent.id}>
+                ↳ Rattaché à {parent.city}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between">
+        <p className="text-xs font-medium text-slate-400">
+          {duration ? `Sera affiché comme : ${formatDaysNights(duration)}` : 'Indique la durée en jours'}
+        </p>
+        <button
+          type="submit"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-slate-800 hover:shadow-md dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+        >
+          Valider
+        </button>
+      </div>
     </form>
   );
 }

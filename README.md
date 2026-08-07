@@ -13,10 +13,14 @@ C'est un planificateur de voyage interactif pour les backpackers (spécialisé p
 
 ### 🗄️ Architecture de la Base de Données (Supabase)
 Toutes les tables sont sécurisées par RLS (Row Level Security). Les visiteurs peuvent lire `steps` et `notes`, mais seul l'admin authentifié peut modifier les données et accéder au Storage `documents`.
-1. `steps` : id, city, country, duration, lat, lng, lodging_info, transport_info, budget_estimated, budget_spent, checklist (JSONB).
-2. `notes` : id, step_id, author_name, content, created_at.
-3. `step_documents` : id, step_id, file_name, file_url, created_at.
-4. Storage : Bucket `documents` sécurisé.
+1. `trips` : id, title, start_date.
+2. `steps` : id, trip_id, parent_id, position, city, country, duration, lat, lng, lodging_info, transport_info, lodging_status, transport_status, budget_estimated, budget_spent, checklist (JSONB), activities (JSONB).
+3. `step_notes` : id, step_id, author_name, content, created_at.
+4. `step_documents` : id, step_id, file_name, file_url, created_at.
+5. `preparation_items` : id, trip_id, category, title, amount, payment, related_to, notes, created_at.
+6. `prep_expenses` / `prep_logistics` : lignes du tableau "Préparation" (budget préparatoire et démarches administratives), indépendantes des étapes.
+7. `backpack_items` : id, name, category, is_packed.
+8. Storage : Bucket `documents` sécurisé.
 
 ### 🧩 Composants Principaux
 - `Timeline.jsx` : Le composant principal. Affiche la vue scindée : Timeline verticale (à gauche) et Carte + Résumé (à droite). Gère le Drag & Drop, le mode sombre, l'export PDF (via des classes `print:hidden`), et l'authentification. Calcule les dates et les distances (Haversine) entre les étapes.

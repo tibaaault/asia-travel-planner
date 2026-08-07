@@ -13,9 +13,9 @@ function App() {
         <div className="absolute right-0 top-28 h-80 w-80 rounded-full bg-emerald-400/12 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-96 w-96 rounded-full bg-blue-300/8 blur-3xl" />
       </div>
-      <header className="relative z-10 w-full bg-slate-950/95 text-white shadow-[0_24px_80px_-40px_rgba(15,23,42,0.6)] backdrop-blur dark:bg-slate-950/90">
+      <header className="relative z-10 w-full bg-slate-950/95 text-white shadow-[0_24px_80px_-40px_rgba(15,23,42,0.6)] backdrop-blur dark:bg-slate-950/70 dark:shadow-none dark:border-b dark:border-white/5">
         <div className="mx-auto max-w-[1680px]">
-          <div className="bg-slate-900/80 px-4 py-4 shadow-[0_18px_50px_-30px_rgba(2,6,23,0.8)] backdrop-blur-sm sm:px-5 dark:bg-slate-900/75">
+          <div className="bg-slate-900/80 px-4 py-4 shadow-[0_18px_50px_-30px_rgba(2,6,23,0.8)] backdrop-blur-sm sm:px-5 dark:bg-slate-900/40 dark:shadow-none">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-start gap-4">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-sky-300 shadow-inner shadow-black/10">
@@ -45,13 +45,13 @@ function App() {
                   <button
                     type="button"
                     onClick={() => setActiveView("itinerary")}
-                    className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition sm:flex-none ${activeView === "itinerary" ? "bg-white text-slate-950 shadow-lg shadow-black/10" : "text-slate-300 hover:text-white"}`}>
+                    className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition sm:flex-none ${activeView === "itinerary" ? "bg-sky-500 text-white shadow-lg shadow-sky-500/20" : "text-slate-300 hover:text-white"}`}>
                     <MapPinned size={16} /> Itinéraire
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveView("preparation")}
-                    className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition sm:flex-none ${activeView === "preparation" ? "bg-white text-slate-950 shadow-lg shadow-black/10" : "text-slate-300 hover:text-white"}`}>
+                    className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition sm:flex-none ${activeView === "preparation" ? "bg-sky-500 text-white shadow-lg shadow-sky-500/20" : "text-slate-300 hover:text-white"}`}>
                     <ClipboardList size={16} /> Préparation
                   </button>
                 </div>

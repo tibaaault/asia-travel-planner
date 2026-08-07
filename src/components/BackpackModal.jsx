@@ -1,6 +1,27 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../config/supabaseClient'; 
-import { CheckSquare, Square, Trash2, Plus } from 'lucide-react'; // Icônes[cite: 1]
+import { supabase } from '../config/supabaseClient';
+import { CheckSquare, Square, Trash2, Plus, Sparkles } from 'lucide-react'; // Icônes[cite: 1]
+
+// Suggestions adaptées à ce voyage : volcans/randonnée (Bromo, Tumpak Sewu),
+// plongée (Komodo), plage et scooter (Lombok), et vol long-courrier.
+const BACKPACK_SUGGESTIONS = [
+  { category: 'Vêtements', name: "Veste chaude (lever de soleil au Bromo, ~5°C)" },
+  { category: 'Vêtements', name: 'Chaussures de marche (volcans, cascades)' },
+  { category: 'Vêtements', name: 'Maillot de bain' },
+  { category: 'Vêtements', name: 'Poncho / veste de pluie' },
+  { category: 'Trousse de toilette', name: 'Crème solaire' },
+  { category: 'Trousse de toilette', name: 'Répulsif anti-moustiques' },
+  { category: 'Trousse de toilette', name: 'Trousse de premiers secours' },
+  { category: 'Tech', name: 'Lampe frontale (ascension Bromo à 3h du matin)' },
+  { category: 'Tech', name: 'Batterie externe' },
+  { category: 'Tech', name: 'Adaptateur prise Indonésie (Type C/F)' },
+  { category: 'Tech', name: 'Caméra étanche / GoPro (plongée)' },
+  { category: 'Tech', name: 'Sac étanche (plongée, bateau)' },
+  { category: 'Documents', name: 'Carte de certification plongée (PADI/SSI)' },
+  { category: 'Documents', name: 'Permis international (scooter)' },
+  { category: 'Documents', name: 'Assurance voyage (plongée incluse)' },
+  { category: 'Général', name: 'Gourde' },
+];
 
 export default function BackpackModal({ session, onClose }) {
   const [items, setItems] = useState([]);
@@ -60,10 +81,27 @@ export default function BackpackModal({ session, onClose }) {
 
   const deleteItem = async (id) => {
     if (isReadOnly) return;
-    
+
     setItems(items.filter(item => item.id !== id));
     await supabase.from('backpack_items').delete().eq('id', id);
   };
+
+  const addSuggestion = async (suggestion) => {
+    if (isReadOnly) return;
+
+    const { data, error } = await supabase
+      .from('backpack_items')
+      .insert([{ name: suggestion.name, category: suggestion.category }])
+      .select()
+      .single();
+
+    if (!error && data) setItems([data, ...items]);
+  };
+
+  const existingNames = new Set(items.map((item) => item.name.trim().toLowerCase()));
+  const availableSuggestions = BACKPACK_SUGGESTIONS.filter(
+    (s) => !existingNames.has(s.name.trim().toLowerCase()),
+  );
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 animate-fade-in">
@@ -101,6 +139,25 @@ export default function BackpackModal({ session, onClose }) {
           </form>
         )}
 
+        {!isReadOnly && availableSuggestions.length > 0 && (
+          <div className="mb-6">
+            <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <Sparkles size={14} className="text-emerald-500" /> Suggestions pour ce voyage
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {availableSuggestions.map((s) => (
+                <button
+                  key={s.name}
+                  type="button"
+                  onClick={() => addSuggestion(s)}
+                  className="rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100 dark:border-emerald-700 dark:bg-slate-800 dark:text-emerald-300 dark:hover:bg-emerald-900/50">
+                  + {s.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <p className="text-center text-slate-500">Chargement...</p>
         ) : (
@@ -126,8 +183,10 @@ export default function BackpackModal({ session, onClose }) {
                         </button>
                         
                         {!isReadOnly && (
-                          <button 
+                          <button
                             onClick={() => deleteItem(item.id)}
+                            aria-label={`Supprimer ${item.name}`}
+                            title="Supprimer"
                             className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
                           >
                             <Trash2 size={16} />

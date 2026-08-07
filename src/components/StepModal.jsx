@@ -21,7 +21,6 @@ import {
   Calculator,
   MapPin,
   Map as MapIcon,
-  Info,
   Calendar,
   ArrowLeft,
 } from "lucide-react";
@@ -427,7 +426,7 @@ export default function StepModal({
   };
 
   const inputClass =
-    "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
+    "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end overflow-hidden bg-slate-900/60 backdrop-blur-sm transition-opacity">
@@ -441,17 +440,21 @@ export default function StepModal({
                 <div className="flex-1 mr-4 sm:mr-6 space-y-3">
                   <input
                     type="text"
+                    name="edit-step-country"
                     value={editCountry}
                     onChange={(e) => setEditCountry(e.target.value)}
                     className={inputClass}
                     placeholder="Pays"
+                    autoComplete="new-password"
                   />
                   <input
                     type="text"
+                    name="edit-step-city"
                     value={editCity}
                     onChange={(e) => setEditCity(e.target.value)}
                     className={`${inputClass} font-bold text-lg`}
                     placeholder="Ville"
+                    autoComplete="new-password"
                   />
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <input
@@ -517,6 +520,8 @@ export default function StepModal({
 
               <button
                 onClick={onClose}
+                aria-label="Fermer"
+                title="Fermer"
                 className="text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 p-2 sm:p-2.5 rounded-full transition-colors bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-700 shrink-0">
                 <X size={20} />
               </button>
@@ -665,11 +670,15 @@ export default function StepModal({
                               <div className="absolute -left-16 top-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 rounded-lg p-1">
                                 <button
                                   onClick={() => startEditingNote(note)}
+                                  aria-label="Modifier la note"
+                                  title="Modifier"
                                   className="p-1.5 text-slate-400 hover:text-blue-600 rounded-md">
                                   <Edit2 size={14} />
                                 </button>
                                 <button
                                   onClick={() => deleteNote(note.id)}
+                                  aria-label="Supprimer la note"
+                                  title="Supprimer"
                                   className="p-1.5 text-slate-400 hover:text-red-500 rounded-md">
                                   <Trash2 size={14} />
                                 </button>
@@ -804,6 +813,8 @@ export default function StepModal({
                         {!isReadOnly && (
                           <button
                             onClick={() => deleteChecklistItem(item.id)}
+                            aria-label={`Supprimer "${item.text}"`}
+                            title="Supprimer"
                             className="text-slate-300 hover:text-red-500 p-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 ml-2 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                             <Trash2 size={18} />
                           </button>
@@ -893,7 +904,7 @@ export default function StepModal({
                           type="button"
                           onClick={addActivityDraft}
                           disabled={!newActivityTitle.trim()}
-                          className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 sm:px-8 py-3 rounded-xl font-bold text-sm hover:bg-slate-800 dark:hover:bg-slate-200 disabled:opacity-50 transition-colors shadow-sm w-full sm:w-auto">
+                          className="bg-slate-900 dark:bg-blue-600 text-white px-6 sm:px-8 py-3 rounded-xl font-bold text-sm hover:bg-slate-800 dark:hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm w-full sm:w-auto">
                           Ajouter à la liste
                         </button>
                       </div>
@@ -948,6 +959,8 @@ export default function StepModal({
                               <button
                                 type="button"
                                 onClick={() => deleteActivity(activity.id)}
+                                aria-label="Supprimer l'activité"
+                                title="Supprimer"
                                 className="p-2 sm:absolute sm:top-5 sm:right-5 rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0">
                                 <Trash2 size={18} />
                               </button>
@@ -1195,7 +1208,7 @@ export default function StepModal({
                   <div className="pt-4 mt-6 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
                     <button
                       type="submit"
-                      className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-sm hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors shadow-lg flex items-center justify-center gap-2">
+                      className="bg-sky-600 text-white w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-sm hover:bg-sky-700 transition-colors shadow-lg flex items-center justify-center gap-2">
                       <Save size={18} /> Sauvegarder
                     </button>
                   </div>
@@ -1290,6 +1303,8 @@ export default function StepModal({
                               onClick={() =>
                                 deleteDocument(doc.id, doc.file_url)
                               }
+                              aria-label={`Supprimer ${doc.file_name}`}
+                              title="Supprimer"
                               className="p-2 sm:p-3 text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 dark:bg-slate-900/50 dark:hover:bg-red-900/30 rounded-xl transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-2">
                               <Trash2 size={18} />{" "}
                               <span className="text-xs font-bold sm:hidden">

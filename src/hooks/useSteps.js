@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../config/supabaseClient";
 
+const DEFAULT_TRIP_START_DATE = "2026-10-01";
+
 export function useSteps() {
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentTripId, setCurrentTripId] = useState(null);
+  const [tripStartDate, setTripStartDate] = useState(DEFAULT_TRIP_START_DATE);
 
   // --- GESTION DU CACHE ET DE LA FILE D'ATTENTE ---
   const saveToCache = (data) => {
@@ -67,27 +70,35 @@ export function useSteps() {
 
       const { data: tripData, error: tripError } = await supabase
         .from("trips")
-        .select("id")
+        .select("id, start_date")
         .limit(1)
         .maybeSingle();
 
       if (tripError) throw tripError;
 
       let tripId = tripData?.id;
+      let tripStart = tripData?.start_date;
 
       if (!tripId) {
         const { data: newTrip, error: createTripError } = await supabase
           .from("trips")
-          .insert([{ title: "Voyage Asie 2026", start_date: "2026-10-01" }])
+          .insert([
+            { title: "Voyage Asie 2026", start_date: DEFAULT_TRIP_START_DATE },
+          ])
           .select()
           .maybeSingle();
 
         if (createTripError) throw createTripError;
         tripId = newTrip?.id;
+        tripStart = newTrip?.start_date;
       }
 
       setCurrentTripId(tripId);
       localStorage.setItem("offline_trip_id", tripId);
+      if (tripStart) {
+        setTripStartDate(tripStart);
+        localStorage.setItem("offline_trip_start_date", tripStart);
+      }
 
       const { data, error } = await supabase
         .from("steps")
@@ -103,8 +114,10 @@ export function useSteps() {
     } catch (err) {
       const cachedSteps = localStorage.getItem("offline_steps");
       const cachedTripId = localStorage.getItem("offline_trip_id");
+      const cachedTripStart = localStorage.getItem("offline_trip_start_date");
       if (cachedSteps) setSteps(JSON.parse(cachedSteps));
       if (cachedTripId) setCurrentTripId(cachedTripId);
+      if (cachedTripStart) setTripStartDate(cachedTripStart);
     } finally {
       setLoading(false);
     }
@@ -240,10 +253,27 @@ export function useSteps() {
     if (error) console.error("Erreur de mise à jour:", error);
   };
 
+  // --- 6. METTRE À JOUR LA DATE DE DÉBUT DU VOYAGE ---
+  const updateTripStartDate = async (newStartDate) => {
+    if (!newStartDate) return;
+    setTripStartDate(newStartDate);
+    localStorage.setItem("offline_trip_start_date", newStartDate);
+
+    if (!currentTripId || !navigator.onLine) return;
+
+    const { error } = await supabase
+      .from("trips")
+      .update({ start_date: newStartDate })
+      .eq("id", currentTripId);
+    if (error) console.error("Erreur de mise à jour de la date de départ:", error);
+  };
+
   return {
     steps,
     loading,
     currentTripId,
+    tripStartDate,
+    updateTripStartDate,
     addStep,
     deleteStep,
     updateStepsOrder,

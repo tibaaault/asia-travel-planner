@@ -2,12 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
-  CheckCircle2,
   Hotel,
   Map as MapIcon, 
   Navigation,
   PlaneTakeoff,
-  Plus,
   ShieldCheck,
   Trash2,
   Wallet,
@@ -20,7 +18,6 @@ import TripSummary from "./TripSummary";
 import {
   getActivityEstimatedPrice,
   getActivityPaidPrice,
-  getParentStepBudgetBreakdown,
   getStepEstimatedTotal,
   getStepPaidTotal,
   getTripEstimatedTotal,
@@ -127,7 +124,7 @@ const EditableSelect = ({ value, options, onSave, readonly }) => {
       className="bg-transparent text-[11px] font-bold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-300 outline-none border-b border-transparent hover:border-slate-300 focus:border-sky-500 cursor-pointer"
     >
       {Object.entries(options).map(([key, meta]) => (
-        <option key={key} value={key} className="text-slate-900">{meta.label}</option>
+        <option key={key} value={key}>{meta.label}</option>
       ))}
     </select>
   );
@@ -217,7 +214,6 @@ export default function PreparationPage({ onBackToItinerary }) {
 
   const tripBudget = getTripEstimatedTotal(steps);
   const tripSpent = getTripPaidTotal(steps);
-  const parentStepBudgetBreakdown = useMemo(() => getParentStepBudgetBreakdown(steps), [steps]);
 
   // Génération des lignes plates
   const budgetDetailRows = useMemo(() => {
@@ -385,6 +381,17 @@ export default function PreparationPage({ onBackToItinerary }) {
     return { total, categoryTotals, paymentTotals };
   }, [items]);
 
+  // Montant des frais généraux (hors étapes) déjà réglés, pour les fondre
+  // dans le budget global au lieu de les isoler dans une case à part.
+  const itemsPaidTotal = useMemo(
+    () =>
+      items.reduce(
+        (acc, item) => acc + (item.payment !== "a_payer" ? Number(item.amount) || 0 : 0),
+        0,
+      ),
+    [items],
+  );
+
   // LOGIQUE D'ÉDITION INLINE "TABLEUR"
   const handleInlineEdit = async (row, field, value) => {
     if (row.rowType === "step") {
@@ -478,11 +485,15 @@ export default function PreparationPage({ onBackToItinerary }) {
     if (currentTripId) supabase.from("preparation_items").delete().eq("trip_id", currentTripId).then(() => {});
   };
 
+  // Budget combiné : étapes/activités + frais généraux saisis à la main,
+  // pour afficher un seul total cohérent au lieu de le fragmenter.
+  const combinedBudget = tripBudget + totals.total;
+  const combinedPaid = tripSpent + itemsPaidTotal;
+
   const summaryCards = [
-    { label: "Budget estimé", value: `${tripBudget.toLocaleString("fr-FR")} €`, tone: "sky", note: "Budget estimé depuis les étapes et activités" },
-    { label: "Déjà payé", value: `${tripSpent.toLocaleString("fr-FR")} €`, tone: "emerald", note: "Ce qui a réellement été payé" },
+    { label: "Budget estimé", value: `${combinedBudget.toLocaleString("fr-FR")} €`, tone: "sky", note: "Étapes, activités et frais généraux" },
+    { label: "Déjà payé", value: `${combinedPaid.toLocaleString("fr-FR")} €`, tone: "emerald", note: "Ce qui a réellement été payé" },
     { label: "À compléter", value: `${pendingBudgetValue.toLocaleString("fr-FR")} €`, tone: "amber", note: `${pendingBudgetRows.length} lignes sans paiement réel` },
-    { label: "Préparation saisie", value: `${totals.total.toLocaleString("fr-FR")} €`, tone: "violet", note: `${items.length} éléments créés dans le tableau` },
   ];
 
   const toneClasses = {
@@ -521,7 +532,7 @@ export default function PreparationPage({ onBackToItinerary }) {
 
       <div className="space-y-6">
         {/* SUMMARY CARDS */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {summaryCards.map((card) => (
             <div key={card.label} className={`rounded-[28px] border p-5 shadow-sm ${toneClasses[card.tone]}`}>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{card.label}</p>
@@ -670,7 +681,7 @@ export default function PreparationPage({ onBackToItinerary }) {
                               </td>
                               <td className="px-4 py-3 align-middle text-center">
                                 {row.rowType === "preparation" && (
-                                  <button onClick={() => deleteItem(row.itemId)} className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover/row:opacity-100">
+                                  <button onClick={() => deleteItem(row.itemId)} aria-label={`Supprimer ${row.label}`} title="Supprimer" className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover/row:opacity-100">
                                     <Trash2 size={16} className="mx-auto" />
                                   </button>
                                 )}
@@ -687,95 +698,84 @@ export default function PreparationPage({ onBackToItinerary }) {
           </div>
         </div>
 
-        {/* BOTTOM GRID : ANALYSES & AJOUT */}
-        <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr_1fr] xl:items-start">
-          
-          {/* COLONNE 1 : Estimation vs Réel */}
-          <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85">
-            <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
-              <MapIcon size={13} /> Étapes mères
-            </div>
-            <h2 className="mt-3 text-lg font-black tracking-tight text-slate-900 dark:text-white">
-              Estimation vs réel de la branche
-            </h2>
-            <div className="mt-4 space-y-3">
-              {parentStepBudgetBreakdown.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-950/40">
-                  Ajoute au moins une étape mère.
-                </div>
-              ) : (
-                parentStepBudgetBreakdown.map((entry) => (
-                  <div key={entry.parent.id} className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/40">
-                    <div className="flex justify-between items-center mb-3">
-                      <h3 className="font-black text-slate-900 dark:text-white">{entry.parent.city}</h3>
-                      <span className="text-xs text-slate-500">{entry.childrenCount} filles</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-sky-100 bg-sky-50 p-2 dark:border-sky-900/40 dark:bg-sky-500/10">
-                        <div className="text-[10px] uppercase text-sky-600 dark:text-sky-300">Estimé (Étape)</div>
-                        <div className="font-black">{entry.estimatedTotal.toLocaleString()} €</div>
-                      </div>
-                      <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-2 dark:border-emerald-900/40 dark:bg-emerald-500/10">
-                        <div className="text-[10px] uppercase text-emerald-600 dark:text-emerald-300">Payé (Branche)</div>
-                        <div className="font-black">{entry.paidChildrenTotal.toLocaleString()} €</div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* COLONNE 2 : Répartition des paiements */}
-          <div className="space-y-6">
-            <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85">
-              <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                <Wallet size={13} /> Paiements
+        {/* FRAIS GÉNÉRAUX : dépenses hors étapes (nourriture, visa, assurance...) */}
+        <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85 sm:p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
+                <Wallet size={13} /> Frais généraux
               </div>
-              <div className="mt-4 space-y-3">
+              <p className="mt-2 max-w-md text-sm text-slate-500 dark:text-slate-400">
+                Dépenses hors étape : nourriture au jour le jour, visa, assurance... Tu peux aussi rattacher un coût à une étape sans ouvrir sa fiche.
+              </p>
+            </div>
+
+            {items.length > 0 && (
+              <div className="flex flex-wrap gap-2 sm:justify-end">
                 {Object.entries(PAYMENT_META).map(([key, meta]) => (
-                  <div key={key} className={`rounded-2xl border p-4 ${toneClasses[meta.tone] || toneClasses.slate}`}>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] opacity-70">{meta.label}</p>
-                    <p className="mt-1 text-xl font-black">{(totals.paymentTotals[key] || 0).toLocaleString()} €</p>
+                  <div key={key} className={`rounded-xl border px-3 py-1.5 ${toneClasses[meta.tone] || toneClasses.slate}`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">{meta.label}</span>{" "}
+                    <span className="text-sm font-black">{(totals.paymentTotals[key] || 0).toLocaleString()} €</span>
                   </div>
                 ))}
               </div>
-            </div>
+            )}
           </div>
 
-          {/* COLONNE 3 : Formulaire d'ajout épuré */}
-          <form onSubmit={handleSubmit} className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85">
-            <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-sky-700 dark:bg-sky-500/10 dark:text-sky-300 mb-4">
-              <Plus size={14} /> Nouvel élément
-            </div>
-            
-            <div className="space-y-4">
+          <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-[2fr_1fr]">
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Intitulé
+                </label>
+                <input type="text" placeholder="Ex. Nourriture, assurance, visa..." value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
-                <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-                  {CATEGORY_ORDER.map(cat => <option key={cat} value={cat}>{CATEGORY_META[cat].label}</option>)}
-                </select>
-                <select value={form.payment} onChange={(e) => setForm({ ...form, payment: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-                  {Object.entries(PAYMENT_META).map(([val, meta]) => <option key={val} value={val}>{meta.label}</option>)}
+                <div>
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Catégorie
+                  </label>
+                  <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    {CATEGORY_ORDER.map(cat => <option key={cat} value={cat}>{CATEGORY_META[cat].label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Statut
+                  </label>
+                  <select value={form.payment} onChange={(e) => setForm({ ...form, payment: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    {Object.entries(PAYMENT_META).map(([val, meta]) => <option key={val} value={val}>{meta.label}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Montant
+                </label>
+                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 focus-within:border-sky-400 focus-within:ring-4 focus-within:ring-sky-500/10 dark:border-slate-700 dark:bg-slate-900">
+                  <input type="number" min="0" step="0.01" placeholder="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-full bg-transparent text-sm outline-none dark:text-white" />
+                  <span className="text-sm font-black text-slate-400 dark:text-slate-500">€</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Étape liée (optionnel)
+                </label>
+                <select value={form.relatedTo} onChange={(e) => setForm({ ...form, relatedTo: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                  {relatedOptions.map((opt) => <option key={opt.value || "travel"} value={opt.value}>{opt.label}</option>)}
                 </select>
               </div>
 
-              <input type="text" placeholder="Intitulé (ex. Billet avion)" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
-              
-              <div className="flex items-center gap-2">
-                <input type="number" placeholder="Montant" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
-                <span className="font-black text-slate-400 dark:text-slate-500">€</span>
-              </div>
-
-              <select value={form.relatedTo} onChange={(e) => setForm({ ...form, relatedTo: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-                {relatedOptions.map((opt) => <option key={opt.value || "travel"} value={opt.value}>{opt.label}</option>)}
-              </select>
-
-              <button type="submit" className="w-full rounded-xl bg-slate-950 py-3 text-sm font-bold text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 transition-colors">
-                Ajouter au tableau
+              <button type="submit" className="w-full rounded-xl bg-sky-600 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
+                Ajouter la dépense
               </button>
             </div>
           </form>
-
         </div>
       </div>
     </div>

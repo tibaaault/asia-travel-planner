@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, MapPin, Network, CalendarDays } from "lucide-react";
 import { formatDaysNights } from "../utils/duration";
+import { geocodePlace } from "../utils/geocoding";
 
 export default function AddStepForm({ onAddStep, parentSteps = [] }) {
   const [city, setCity] = useState("");
@@ -15,11 +16,10 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
     let lat = null;
     let lng = null;
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${city},${country}`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        lat = parseFloat(data[0].lat);
-        lng = parseFloat(data[0].lon);
+      const location = await geocodePlace(`${city}, ${country}`);
+      if (location) {
+        lat = location.lat;
+        lng = location.lng;
       }
     } catch (err) {}
 
@@ -39,10 +39,10 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
     setParentId("");
   };
 
-  const inputClass = "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
+  const inputClass = "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
 
   return (
-    <form onSubmit={handleSubmit} className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 transition-all">
+    <form onSubmit={handleSubmit} autoComplete="off" className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 transition-all">
       <div className="mb-4 flex items-center gap-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
           <Plus size={16} strokeWidth={3} />
@@ -59,10 +59,12 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
           </div>
           <input
             type="text"
+            name="step-city"
             placeholder="Ville (ex. Malang)"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             className={`${inputClass} pl-9`}
+            autoComplete="new-password"
             required
           />
         </div>
@@ -70,10 +72,12 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
         <div className="md:col-span-3">
           <input
             type="text"
+            name="step-country"
             placeholder="Pays (ex. Indonésie)"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
             className={inputClass}
+            autoComplete="new-password"
             required
           />
         </div>
@@ -84,11 +88,13 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
           </div>
           <input
             type="number"
+            name="step-duration"
             placeholder="Jours"
             min="0"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
             className={`${inputClass} pl-9`}
+            autoComplete="off"
             required
           />
         </div>

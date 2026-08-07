@@ -2,7 +2,6 @@ import { useState } from "react";
 import { supabase } from "../config/supabaseClient";
 import {
   KeyRound,
-  Lock,
   LogOut,
   Loader2,
   ShieldCheck,
@@ -57,7 +56,9 @@ export default function Auth({ session }) {
     setFeedback("");
 
     if (!session) {
-      setFeedback("La création de compte est réservée aux utilisateurs connectés.");
+      setFeedback(
+        "La création de compte est réservée aux utilisateurs connectés.",
+      );
       setLoading(false);
       return;
     }
@@ -123,35 +124,36 @@ export default function Auth({ session }) {
         {mode === "signup" && (
           <form
             onSubmit={handleSignup}
-            className="flex flex-wrap items-stretch gap-2 rounded-xl border border-slate-700 bg-slate-950/85 p-2 text-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
-            <div className="w-full px-1 pb-1 text-[11px] font-medium text-white/80 dark:text-white/80">
-              Création d'un compte autorisée uniquement pour les utilisateurs connectés.
+            className="scheme-dark flex flex-wrap items-stretch gap-2 rounded-xl border border-slate-700 bg-slate-950/85 p-2 text-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="w-full px-1 pb-1 text-[11px] font-medium text-slate-200/90 dark:text-slate-200/90">
+              Création d'un compte autorisée uniquement pour les utilisateurs
+              connectés.
             </div>
             <input
               type="text"
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
             />
             <input
               type="email"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
             />
             <input
               type="password"
               placeholder="Mot de passe"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
             />
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex items-center justify-center rounded-lg bg-white px-3 py-2 text-slate-950 shadow-md shadow-slate-900/15 hover:bg-slate-200 disabled:cursor-wait disabled:opacity-70">
+              className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-3 py-2 text-white shadow-md shadow-sky-900/15 hover:bg-sky-400 disabled:cursor-wait disabled:opacity-70">
               {loading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
@@ -168,7 +170,7 @@ export default function Auth({ session }) {
               Retour
             </button>
             {feedback && (
-              <p className="w-full text-[11px] font-medium text-white/80 dark:text-white/80">
+              <p className="w-full text-[11px] font-medium text-slate-200/90 dark:text-slate-200/90">
                 {feedback}
               </p>
             )}
@@ -182,8 +184,8 @@ export default function Auth({ session }) {
   return (
     <form
       onSubmit={handleLogin}
-      className="flex flex-wrap items-stretch gap-2 rounded-xl border border-slate-700 bg-slate-950/85 p-2 text-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
-      <div className="w-full px-1 pb-1 text-[11px] font-medium text-white/80 dark:text-white/80">
+      className="scheme-dark flex flex-wrap items-stretch gap-2 rounded-xl border border-slate-700 bg-slate-950/85 p-2 text-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
+      <div className="w-full px-1 pb-1 text-[11px] font-medium text-slate-200/90 dark:text-slate-200/90">
         Connexion avec ton username et ton mot de passe.
       </div>
       <input
@@ -191,23 +193,27 @@ export default function Auth({ session }) {
         placeholder="Username"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
-        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
       />
       <input
         type="password"
         placeholder="Mot de passe"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
       />
       <button
         type="submit"
         disabled={loading}
-        className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-3 py-2 text-white shadow-md shadow-slate-900/15 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-70 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
-        {loading ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+        className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-3 py-2 text-white shadow-md shadow-sky-900/15 hover:bg-sky-400 disabled:cursor-wait disabled:opacity-70 dark:bg-sky-400 dark:text-slate-950 dark:hover:bg-sky-300">
+        {loading ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <KeyRound size={14} />
+        )}
       </button>
       {feedback && (
-        <p className="w-full text-[11px] font-medium text-white/80 dark:text-white/80">
+        <p className="w-full text-[11px] font-medium text-slate-200/90 dark:text-slate-200/90">
           {feedback}
         </p>
       )}

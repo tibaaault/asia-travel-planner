@@ -29,6 +29,49 @@ import BackpackModal from "./BackpackModal";
 import { formatDaysNights } from "../utils/duration";
 import { getTopLevelSteps } from "../utils/budget";
 
+// Résumé visuel du statut logistique (hébergement + transport) d'une étape,
+// pour repérer en un coup d'œil ce qui reste à réserver sans ouvrir la
+// modale de détail.
+const LOGISTICS_SUMMARY = {
+  A_RESERVER: {
+    label: "À réserver",
+    className:
+      "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
+  },
+  RESERVE: {
+    label: "Réservé",
+    className:
+      "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400",
+  },
+  PAYE: {
+    label: "Tout réglé",
+    className:
+      "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
+  },
+};
+
+const getLogisticsSummary = (step) => {
+  const lodging = step.lodging_status || "A_RESERVER";
+  const transport = step.transport_status || "A_RESERVER";
+  if (lodging === "A_RESERVER" || transport === "A_RESERVER") {
+    return LOGISTICS_SUMMARY.A_RESERVER;
+  }
+  if (lodging === "PAYE" && transport === "PAYE") {
+    return LOGISTICS_SUMMARY.PAYE;
+  }
+  return LOGISTICS_SUMMARY.RESERVE;
+};
+
+const LogisticsBadge = ({ step, className = "" }) => {
+  const summary = getLogisticsSummary(step);
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${summary.className} ${className}`}>
+      {summary.label}
+    </span>
+  );
+};
+
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -39,9 +82,17 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 };
 
 export default function Timeline() {
-  const { steps, loading, addStep, deleteStep, updateStepsOrder, updateStep } = useSteps();
+  const {
+    steps,
+    loading,
+    tripStartDate,
+    updateTripStartDate,
+    addStep,
+    deleteStep,
+    updateStepsOrder,
+    updateStep,
+  } = useSteps();
   const [session, setSession] = useState(null);
-  const [tripStartDate, setTripStartDate] = useState("2026-10-01");
   const [selectedStep, setSelectedStep] = useState(null);
   const [isBackpackOpen, setIsBackpackOpen] = useState(false);
   
@@ -210,8 +261,9 @@ export default function Timeline() {
                   <input
                     type="date"
                     value={tripStartDate}
-                    onChange={(e) => setTripStartDate(e.target.value)}
+                    onChange={(e) => updateTripStartDate(e.target.value)}
                     disabled={isReadOnly}
+                    title="Date de début du voyage"
                     className="bg-transparent text-sm font-bold text-slate-700 outline-none dark:text-slate-200 cursor-pointer"
                   />
                 </div>
@@ -301,10 +353,11 @@ export default function Timeline() {
                                                 {parentStep.country}
                                               </span>
                                             </div>
-                                            <div className="mt-1 flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
                                               <span className="flex items-center gap-1"><Calendar size={12}/> {formatDate(parentStep.computedStartDate)} - {formatDate(parentStep.computedEndDate)}</span>
                                               <span>•</span>
                                               <span className="text-blue-600 dark:text-blue-400 font-bold">{formatDaysNights(parentStep.duration, { compact: true })}</span>
+                                              <LogisticsBadge step={parentStep} />
                                             </div>
                                           </div>
                                         </div>
@@ -374,16 +427,18 @@ export default function Timeline() {
                                                             <h4 className="truncate text-sm font-bold text-slate-800 dark:text-slate-200">
                                                               {excursion.city}
                                                             </h4>
-                                                            <p className="text-[11px] font-medium text-slate-500">
-                                                              {formatDaysNights(excursion.duration, { compact: true })} • {formatDate(excursion.computedStartDate)}
-                                                            </p>
+                                                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                                                              <span>{formatDaysNights(excursion.duration, { compact: true })} • {formatDate(excursion.computedStartDate)}</span>
+                                                              <LogisticsBadge step={excursion} />
+                                                            </div>
                                                           </div>
                                                         </div>
                                                         
                                                         <div className="flex items-center gap-1 shrink-0 ml-2">
-                                                          <button 
+                                                          <button
                                                             onClick={(e) => { e.stopPropagation(); setSelectedStep(excursion); }}
                                                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-md transition-colors"
+                                                            title="Voir les détails"
                                                           >
                                                             <Eye size={16} />
                                                           </button>
@@ -391,6 +446,7 @@ export default function Timeline() {
                                                             <button
                                                               onClick={(e) => { e.stopPropagation(); handleDeleteStep(excursion.id); }}
                                                               className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                                                              title="Supprimer"
                                                             >
                                                               <Trash2 size={16} />
                                                             </button>
@@ -444,7 +500,7 @@ export default function Timeline() {
         />
       )}
       {isBackpackOpen && (
-        <BackpackModal onClose={() => setIsBackpackOpen(false)} currentCountries={uniqueCountries} />
+        <BackpackModal session={session} onClose={() => setIsBackpackOpen(false)} currentCountries={uniqueCountries} />
       )}
     </div>
   );

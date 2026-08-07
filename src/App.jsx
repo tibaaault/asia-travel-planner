@@ -1,10 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarDays, ClipboardList, MapPinned, Sparkles } from "lucide-react";
 import Timeline from "./components/Timeline";
 import PreparationPage from "./components/PreparationPage";
+import { supabase } from "./config/supabaseClient";
 
 function App() {
   const [activeView, setActiveView] = useState("itinerary");
+  // Session levée ici (plutôt que dans Timeline uniquement) pour que la
+  // page Préparation connaisse elle aussi le mode visiteur/admin.
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-transparent text-slate-900 dark:text-slate-100">
@@ -76,9 +88,13 @@ function App() {
       </header>
       <div className="relative z-10 mx-auto max-w-[1680px] px-4 pt-4 md:px-6 md:pt-6 xl:px-8 xl:pt-8">
         {activeView === "itinerary" ? (
-          <Timeline onOpenPreparation={() => setActiveView("preparation")} />
+          <Timeline
+            session={session}
+            onOpenPreparation={() => setActiveView("preparation")}
+          />
         ) : (
           <PreparationPage
+            session={session}
             onBackToItinerary={() => setActiveView("itinerary")}
           />
         )}

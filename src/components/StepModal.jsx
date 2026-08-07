@@ -127,7 +127,6 @@ const StatusBadgeSelector = ({ currentStatus, onChange, disabled }) => {
 export default function StepModal({
   step,
   onClose,
-  session,
   onUpdateStep,
   isReadOnly,
 }) {
@@ -195,22 +194,61 @@ export default function StepModal({
   }, [isReadOnly]);
 
   useEffect(() => {
-    if (step.lat && step.lng) {
-      fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${step.lat}&longitude=${step.lng}&current_weather=true`,
-      )
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.current_weather) {
-            setWeather({
-              temp: Math.round(data.current_weather.temperature),
-              emoji: getWeatherEmoji(data.current_weather.weathercode),
-            });
-          }
-        })
-        .catch((err) => console.error("Erreur météo:", err));
-    }
-  }, [step.lat, step.lng]);
+    if (!step.lat || !step.lng) return;
+
+    // Un voyage se prépare des mois à l'avance : la météo "temps réel"
+    // n'a aucun rapport avec ce qu'il fera sur place le jour J. On
+    // affiche à la place une météo typique, calculée sur la même période
+    // (± 5 jours) de l'année complète la plus récente disponible.
+    const targetDate = step.computedStartDate
+      ? new Date(step.computedStartDate)
+      : new Date();
+    const currentYear = new Date().getFullYear();
+    const referenceYear =
+      targetDate.getFullYear() > currentYear
+        ? currentYear - 1
+        : targetDate.getFullYear() - 1;
+
+    const referenceDate = new Date(targetDate);
+    referenceDate.setFullYear(referenceYear);
+    const shiftDays = (date, delta) => {
+      const shifted = new Date(date);
+      shifted.setDate(shifted.getDate() + delta);
+      return shifted;
+    };
+    const toISODate = (date) => date.toISOString().slice(0, 10);
+    const startDate = toISODate(shiftDays(referenceDate, -5));
+    const endDate = toISODate(shiftDays(referenceDate, 5));
+
+    fetch(
+      `https://archive-api.open-meteo.com/v1/archive?latitude=${step.lat}&longitude=${step.lng}&start_date=${startDate}&end_date=${endDate}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`,
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        const maxTemps = data.daily?.temperature_2m_max?.filter((t) => t != null);
+        const minTemps = data.daily?.temperature_2m_min?.filter((t) => t != null);
+        const codes = data.daily?.weathercode?.filter((c) => c != null);
+        if (!maxTemps?.length || !minTemps?.length || !codes?.length) return;
+
+        const average = (values) =>
+          values.reduce((sum, value) => sum + value, 0) / values.length;
+        const codeCounts = {};
+        codes.forEach((code) => {
+          codeCounts[code] = (codeCounts[code] || 0) + 1;
+        });
+        const mostFrequentCode = Number(
+          Object.entries(codeCounts).sort((a, b) => b[1] - a[1])[0][0],
+        );
+
+        setWeather({
+          tempMax: Math.round(average(maxTemps)),
+          tempMin: Math.round(average(minTemps)),
+          emoji: getWeatherEmoji(mostFrequentCode),
+          referenceYear,
+        });
+      })
+      .catch((err) => console.error("Erreur météo:", err));
+  }, [step.lat, step.lng, step.computedStartDate]);
 
   useEffect(() => {
     if (activeTab === "logistics" && !exchangeRates) {
@@ -491,8 +529,11 @@ export default function StepModal({
                     {weather && (
                       <span
                         className="inline-flex items-center gap-1.5 rounded-full bg-white dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm"
-                        title="Météo actuelle">
-                        {weather.emoji} {weather.temp}°C
+                        title={`Météo typique sur cette période, d'après ${weather.referenceYear}`}>
+                        {weather.emoji} {weather.tempMin}-{weather.tempMax}°C
+                        <span className="hidden font-normal text-slate-400 sm:inline">
+                          typique
+                        </span>
                       </span>
                     )}
                   </div>
@@ -1098,6 +1139,7 @@ export default function StepModal({
                         <option value="JPY">JPY</option>
                         <option value="USD">USD</option>
                         <option value="MYR">MYR</option>
+                        <option value="SGD">SGD</option>
                       </select>
                     </div>
                     <div className="text-slate-400">

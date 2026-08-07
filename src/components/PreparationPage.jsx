@@ -133,7 +133,8 @@ const EditableSelect = ({ value, options, onSave, readonly }) => {
 // ==========================================
 // PAGE PRINCIPALE
 // ==========================================
-export default function PreparationPage({ onBackToItinerary }) {
+export default function PreparationPage({ session, onBackToItinerary }) {
+  const isReadOnly = !session;
   const { steps, currentTripId, updateStep } = useSteps();
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(initialFormState);
@@ -394,6 +395,7 @@ export default function PreparationPage({ onBackToItinerary }) {
 
   // LOGIQUE D'ÉDITION INLINE "TABLEUR"
   const handleInlineEdit = async (row, field, value) => {
+    if (isReadOnly) return;
     if (row.rowType === "step") {
       const updates = {};
       if (field === 'estimated') updates.budget_estimated = value;
@@ -439,7 +441,7 @@ export default function PreparationPage({ onBackToItinerary }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!form.title.trim()) return;
+    if (isReadOnly || !form.title.trim()) return;
 
     const newItem = {
       id: crypto.randomUUID ? crypto.randomUUID() : `prep-${Date.now()}`,
@@ -472,6 +474,7 @@ export default function PreparationPage({ onBackToItinerary }) {
   };
 
   const deleteItem = (id) => {
+    if (isReadOnly) return;
     const nextItems = items.filter((item) => item.id !== id);
     setItems(nextItems);
     syncLocalCache(currentTripId, nextItems);
@@ -479,7 +482,7 @@ export default function PreparationPage({ onBackToItinerary }) {
   };
 
   const clearAll = () => {
-    if (!window.confirm("Supprimer tous les éléments de préparation ?")) return;
+    if (isReadOnly || !window.confirm("Supprimer tous les éléments de préparation ?")) return;
     setItems([]);
     syncLocalCache(currentTripId, []);
     if (currentTripId) supabase.from("preparation_items").delete().eq("trip_id", currentTripId).then(() => {});
@@ -524,9 +527,11 @@ export default function PreparationPage({ onBackToItinerary }) {
           <button onClick={onBackToItinerary} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-800">
             <ArrowLeft size={16} /> Itinéraire
           </button>
-          <button onClick={clearAll} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-700 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
-            <Trash2 size={16} /> Vider
-          </button>
+          {!isReadOnly && (
+            <button onClick={clearAll} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-700 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+              <Trash2 size={16} /> Vider
+            </button>
+          )}
         </div>
       </div>
 
@@ -646,19 +651,20 @@ export default function PreparationPage({ onBackToItinerary }) {
                                 </span>
                               </td>
                               <td className="px-4 py-3 align-middle">
-                                <EditableText 
-                                  value={row.label} 
+                                <EditableText
+                                  value={row.label}
                                   onSave={(val) => handleInlineEdit(row, 'title', val)}
-                                  readonly={row.rowType === 'step'}
+                                  readonly={isReadOnly || row.rowType === 'step'}
                                 />
                                 {row.reference && <div className="mt-1 text-[11px] text-slate-400">{row.reference}</div>}
                               </td>
                               <td className="px-4 py-3 align-middle text-center">
                                 {row.rowType === "preparation" ? (
-                                  <EditableSelect 
+                                  <EditableSelect
                                     value={row.payment}
                                     options={PAYMENT_META}
                                     onSave={(val) => handleInlineEdit(row, 'payment', val)}
+                                    readonly={isReadOnly}
                                   />
                                 ) : (
                                   <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.paid > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:text-emerald-300' : row.estimated > 0 ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/10 dark:text-amber-300' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300'}`}>
@@ -667,20 +673,20 @@ export default function PreparationPage({ onBackToItinerary }) {
                                 )}
                               </td>
                               <td className="px-4 py-3 align-middle text-right">
-                                <EditableCurrency value={row.estimated} onSave={(val) => handleInlineEdit(row, 'estimated', val)} />
+                                <EditableCurrency value={row.estimated} onSave={(val) => handleInlineEdit(row, 'estimated', val)} readonly={isReadOnly} />
                               </td>
                               <td className="px-4 py-3 align-middle text-right">
-                                <EditableCurrency 
-                                  value={row.paid} 
-                                  onSave={(val) => handleInlineEdit(row, 'paid', val)} 
-                                  readonly={row.rowType === 'preparation'}
+                                <EditableCurrency
+                                  value={row.paid}
+                                  onSave={(val) => handleInlineEdit(row, 'paid', val)}
+                                  readonly={isReadOnly || row.rowType === 'preparation'}
                                 />
                               </td>
                               <td className={`px-4 py-3 align-middle text-right font-black ${childGap > 0 ? "text-amber-600 dark:text-amber-400" : childGap < 0 ? "text-red-600 dark:text-red-400" : "text-slate-300 dark:text-slate-600"}`}>
                                 {childGap !== 0 ? `${childGap.toLocaleString("fr-FR")} €` : '-'}
                               </td>
                               <td className="px-4 py-3 align-middle text-center">
-                                {row.rowType === "preparation" && (
+                                {!isReadOnly && row.rowType === "preparation" && (
                                   <button onClick={() => deleteItem(row.itemId)} aria-label={`Supprimer ${row.label}`} title="Supprimer" className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover/row:opacity-100">
                                     <Trash2 size={16} className="mx-auto" />
                                   </button>
@@ -699,6 +705,7 @@ export default function PreparationPage({ onBackToItinerary }) {
         </div>
 
         {/* FRAIS GÉNÉRAUX : dépenses hors étapes (nourriture, visa, assurance...) */}
+        {(!isReadOnly || items.length > 0) && (
         <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85 sm:p-6">
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -722,6 +729,7 @@ export default function PreparationPage({ onBackToItinerary }) {
             )}
           </div>
 
+          {!isReadOnly && (
           <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-[2fr_1fr]">
             <div className="space-y-3">
               <div>
@@ -776,7 +784,9 @@ export default function PreparationPage({ onBackToItinerary }) {
               </button>
             </div>
           </form>
+          )}
         </div>
+        )}
       </div>
     </div>
   );

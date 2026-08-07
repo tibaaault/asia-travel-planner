@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import React from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import {
@@ -21,13 +21,16 @@ import {
 import AddStepForm from "./AddStepForm";
 import { useSteps } from "../hooks/useSteps";
 import StepModal from "./StepModal";
-import RouteMap from "./RouteMap";
 import TripSummary from "./TripSummary";
-import { supabase } from "../config/supabaseClient";
 import Auth from "./Auth";
 import BackpackModal from "./BackpackModal";
 import { formatDaysNights } from "../utils/duration";
 import { getTopLevelSteps } from "../utils/budget";
+
+// Leaflet + react-leaflet pèsent lourd dans le bundle : chargés à la demande
+// plutôt qu'au premier affichage de la page (l'essentiel du chargement
+// initial devient plus léger, notamment en mobile/à l'étranger).
+const RouteMap = React.lazy(() => import("./RouteMap"));
 
 // Résumé visuel du statut logistique (hébergement + transport) d'une étape,
 // pour repérer en un coup d'œil ce qui reste à réserver sans ouvrir la
@@ -81,7 +84,7 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return Math.round(R * c);
 };
 
-export default function Timeline() {
+export default function Timeline({ session }) {
   const {
     steps,
     loading,
@@ -92,20 +95,16 @@ export default function Timeline() {
     updateStepsOrder,
     updateStep,
   } = useSteps();
-  const [session, setSession] = useState(null);
   const [selectedStep, setSelectedStep] = useState(null);
   const [isBackpackOpen, setIsBackpackOpen] = useState(false);
-  
+
   // 🗂️ ÉTAT POUR L'ACCORDÉON (Liste des IDs des étapes mères pliées)
   const [collapsedParents, setCollapsedParents] = useState(new Set());
-  
-  const isReadOnly = !session;
+  // 🗓️ ÉTAT POUR L'ACCORDÉON PAR SEMAINE (index de semaine plié)
+  const [collapsedWeeks, setCollapsedWeeks] = useState(new Set());
+  const hasInitializedWeeksRef = useRef(false);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
-    return () => subscription.unsubscribe();
-  }, []);
+  const isReadOnly = !session;
 
   // --- LOGIQUE ACCORDÉON ---
   const toggleParent = (parentId, e) => {
@@ -114,15 +113,6 @@ export default function Timeline() {
     if (newCollapsed.has(parentId)) newCollapsed.delete(parentId);
     else newCollapsed.add(parentId);
     setCollapsedParents(newCollapsed);
-  };
-
-  const toggleAll = () => {
-    if (collapsedParents.size > 0) {
-      setCollapsedParents(new Set()); // Tout déplier
-    } else {
-      const allParentIds = steps.filter(s => !s.parent_id).map(s => s.id);
-      setCollapsedParents(new Set(allParentIds)); // Tout plier
-    }
   };
 
   const handleAddStep = (newStep) => addStep(newStep);
@@ -203,7 +193,70 @@ export default function Timeline() {
   const travelSteps = getTopLevelSteps(stepsWithDates);
   const getChildrenForParent = (parentId) => stepsWithDates.filter((s) => s.parent_id === parentId);
   const uniqueCountries = [...new Set(steps.map((s) => s.country))];
-  
+
+  // 🗓️ REGROUPEMENT DES ÉTAPES MÈRES PAR SEMAINE DE VOYAGE (calculé depuis
+  // les dates, sans toucher aux données) — une longue liste d'étapes se
+  // replie ainsi par blocs de 7 jours, comme les "Semaine 1 / Semaine 2"
+  // qu'on note naturellement en préparant un voyage.
+  const weekGroups = useMemo(() => {
+    if (parentSteps.length === 0) return [];
+    const tripStart = new Date(tripStartDate);
+    tripStart.setHours(0, 0, 0, 0);
+
+    // (objet simple plutôt qu'un Map JS : l'icône lucide-react "Map" est
+    // déjà importée sous ce nom dans ce fichier et masque le constructeur natif)
+    const groupsByWeek = {};
+    parentSteps.forEach((step, index) => {
+      const daysFromStart = Math.floor((step.computedStartDate - tripStart) / 86400000);
+      const weekIndex = Math.max(0, Math.floor(daysFromStart / 7));
+      if (!groupsByWeek[weekIndex]) groupsByWeek[weekIndex] = [];
+      groupsByWeek[weekIndex].push({ step, index });
+    });
+
+    return Object.keys(groupsByWeek)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .map((weekIndex) => {
+        const items = groupsByWeek[weekIndex];
+        return {
+          weekIndex,
+          label: `Semaine ${weekIndex + 1}`,
+          items,
+          startDate: items[0].step.computedStartDate,
+          endDate: items[items.length - 1].step.computedEndDate,
+        };
+      });
+  }, [parentSteps, tripStartDate]);
+
+  // Replié par défaut sauf la 1ère semaine, une seule fois au premier
+  // chargement des données (pas à chaque ajout/suppression d'étape).
+  useEffect(() => {
+    if (!hasInitializedWeeksRef.current && weekGroups.length > 1) {
+      setCollapsedWeeks(new Set(weekGroups.slice(1).map((g) => g.weekIndex)));
+      hasInitializedWeeksRef.current = true;
+    }
+  }, [weekGroups]);
+
+  const toggleWeek = (weekIndex) => {
+    const next = new Set(collapsedWeeks);
+    if (next.has(weekIndex)) next.delete(weekIndex);
+    else next.add(weekIndex);
+    setCollapsedWeeks(next);
+  };
+
+  const allWeeksCollapsed = weekGroups.length > 0 && collapsedWeeks.size >= weekGroups.length;
+
+  const toggleAll = () => {
+    if (allWeeksCollapsed) {
+      setCollapsedWeeks(new Set()); // Tout déplier
+      setCollapsedParents(new Set());
+    } else {
+      setCollapsedWeeks(new Set(weekGroups.map((g) => g.weekIndex))); // Tout plier
+      const allParentIds = steps.filter((s) => !s.parent_id).map((s) => s.id);
+      setCollapsedParents(new Set(allParentIds));
+    }
+  };
+
   const visaStats = useMemo(() => {
     const countryStays = {};
     travelSteps.forEach((step) => {
@@ -224,7 +277,18 @@ export default function Timeline() {
     return distance;
   }, [travelSteps]);
 
-  const activeStepInModal = steps.find((s) => s.id === selectedStep?.id);
+  // On repart des données fraîches (steps) mais on raccroche la date
+  // calculée (stepsWithDates) : StepModal en a besoin pour aller chercher
+  // la météo typique de la bonne période plutôt que la météo du jour.
+  const freshActiveStep = steps.find((s) => s.id === selectedStep?.id);
+  const computedActiveStep = stepsWithDates.find((s) => s.id === selectedStep?.id);
+  const activeStepInModal = freshActiveStep
+    ? {
+        ...freshActiveStep,
+        computedStartDate: computedActiveStep?.computedStartDate,
+        computedEndDate: computedActiveStep?.computedEndDate,
+      }
+    : selectedStep;
 
   if (loading)
     return (
@@ -301,7 +365,7 @@ export default function Timeline() {
                     onClick={toggleAll}
                     className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1.5 transition-colors"
                   >
-                    {collapsedParents.size > 0 ? <><UnfoldVertical size={14}/> Tout déplier</> : <><FoldVertical size={14}/> Tout plier</>}
+                    {allWeeksCollapsed ? <><UnfoldVertical size={14}/> Tout déplier</> : <><FoldVertical size={14}/> Tout plier</>}
                   </button>
                 )}
               </div>
@@ -318,25 +382,50 @@ export default function Timeline() {
                   <DragDropContext onDragEnd={handleDragEnd}>
                     <Droppable droppableId="ROOT" type="STEP" isDropDisabled={isReadOnly}>
                       {(provided) => (
-                        <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-4">
-                          {parentSteps.map((parentStep, index) => {
+                        <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-3">
+                          {weekGroups.map((group) => {
+                            const isWeekCollapsed = collapsedWeeks.has(group.weekIndex);
+                            return (
+                              <div key={group.weekIndex}>
+                                {weekGroups.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleWeek(group.weekIndex)}
+                                    className="relative z-10 mb-2 flex w-full items-center justify-between rounded-xl bg-slate-100/90 px-3 py-2 text-left transition-colors hover:bg-slate-200/80 dark:bg-slate-800/80 dark:hover:bg-slate-700/80"
+                                  >
+                                    <span className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">
+                                      {isWeekCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                                      {group.label}
+                                      <span className="font-medium normal-case tracking-normal text-slate-400 dark:text-slate-500">
+                                        {formatDate(group.startDate)} - {formatDate(group.endDate)}
+                                      </span>
+                                    </span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                      {group.items.length} étape{group.items.length > 1 ? 's' : ''}
+                                    </span>
+                                  </button>
+                                )}
+
+                                <div className={isWeekCollapsed ? "hidden" : "space-y-3"}>
+                                  {group.items.map(({ step: parentStep, index }) => {
                             const excursions = getChildrenForParent(parentStep.id);
                             const isCollapsed = collapsedParents.has(parentStep.id);
+                            const canToggle = excursions.length > 0;
 
                             return (
                               <Draggable key={parentStep.id} draggableId={parentStep.id} index={index} isDragDisabled={isReadOnly}>
                                 {(provided, snapshot) => (
                                   <div ref={provided.innerRef} {...provided.draggableProps} className="relative pl-11 print:pl-0">
-                                    
+
                                     {/* Point sur la timeline */}
-                                    <div className={`absolute left-[15px] top-6 z-10 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm print:hidden transition-colors ${isCollapsed ? 'bg-slate-400 dark:bg-slate-500' : 'bg-blue-500'}`} />
+                                    <div className={`absolute left-[15px] top-5 z-10 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm print:hidden transition-colors ${isCollapsed ? 'bg-slate-400 dark:bg-slate-500' : 'bg-blue-500'}`} />
 
                                     <div className={`transition-all ${snapshot.isDragging ? "opacity-90 z-50 scale-[1.02]" : ""}`}>
-                                      
+
                                       {/* CARTE CAMP DE BASE */}
-                                      <div 
-                                        onClick={(e) => toggleParent(parentStep.id, e)}
-                                        className={`group flex flex-col sm:flex-row sm:items-center justify-between rounded-[20px] border bg-white p-4 shadow-sm transition-all cursor-pointer hover:shadow-md dark:bg-slate-800 ${snapshot.isDragging ? "border-blue-400 shadow-lg ring-2 ring-blue-100 dark:ring-blue-900/50" : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"}`}
+                                      <div
+                                        onClick={canToggle ? (e) => toggleParent(parentStep.id, e) : undefined}
+                                        className={`group flex flex-col sm:flex-row sm:items-center justify-between rounded-2xl border bg-white p-3 shadow-sm transition-all hover:shadow-md dark:bg-slate-800 ${canToggle ? "cursor-pointer" : ""} ${snapshot.isDragging ? "border-blue-400 shadow-lg ring-2 ring-blue-100 dark:ring-blue-900/50" : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"}`}
                                       >
                                         <div className="flex items-center gap-3">
                                           {!isReadOnly && (
@@ -346,14 +435,14 @@ export default function Timeline() {
                                           )}
                                           <div>
                                             <div className="flex items-center gap-2">
-                                              <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">
+                                              <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">
                                                 {parentStep.city}
                                               </h3>
                                               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                                                 {parentStep.country}
                                               </span>
                                             </div>
-                                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
                                               <span className="flex items-center gap-1"><Calendar size={12}/> {formatDate(parentStep.computedStartDate)} - {formatDate(parentStep.computedEndDate)}</span>
                                               <span>•</span>
                                               <span className="text-blue-600 dark:text-blue-400 font-bold">{formatDaysNights(parentStep.duration, { compact: true })}</span>
@@ -362,17 +451,17 @@ export default function Timeline() {
                                           </div>
                                         </div>
 
-                                        <div className="mt-3 flex items-center justify-between sm:mt-0 sm:justify-end gap-2 pl-9 sm:pl-0">
+                                        <div className="mt-2 flex items-center justify-between sm:mt-0 sm:justify-end gap-2 pl-9 sm:pl-0">
                                           {isCollapsed && excursions.length > 0 && (
                                             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:bg-slate-700 dark:text-slate-300">
                                               {excursions.length} excursion{excursions.length > 1 ? 's' : ''}
                                             </span>
                                           )}
-                                          
+
                                           <div className="flex items-center gap-1">
-                                            <button 
+                                            <button
                                               onClick={(e) => { e.stopPropagation(); setSelectedStep(parentStep); }}
-                                              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
                                               title="Voir les détails"
                                             >
                                               <Eye size={18} />
@@ -380,15 +469,17 @@ export default function Timeline() {
                                             {!isReadOnly && (
                                               <button
                                                 onClick={(e) => { e.stopPropagation(); handleDeleteStep(parentStep.id); }}
-                                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                                                 title="Supprimer"
                                               >
                                                 <Trash2 size={18} />
                                               </button>
                                             )}
-                                            <div className="ml-1 text-slate-300 dark:text-slate-600">
-                                              {isCollapsed ? <ChevronRight size={20}/> : <ChevronDown size={20}/>}
-                                            </div>
+                                            {canToggle && (
+                                              <div className="ml-1 text-slate-300 dark:text-slate-600">
+                                                {isCollapsed ? <ChevronRight size={20}/> : <ChevronDown size={20}/>}
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
                                       </div>
@@ -467,6 +558,10 @@ export default function Timeline() {
                                 )}
                               </Draggable>
                             );
+                                  })}
+                                </div>
+                              </div>
+                            );
                           })}
                           {provided.placeholder}
                         </div>
@@ -485,7 +580,14 @@ export default function Timeline() {
             )}
 
             <div className="h-80 w-full overflow-hidden rounded-[32px] border border-slate-200/80 shadow-sm dark:border-slate-700 sm:h-96 lg:h-[600px] bg-slate-200 dark:bg-slate-800">
-              <RouteMap steps={stepsWithDates} />
+              <React.Suspense
+                fallback={
+                  <div className="flex h-full w-full items-center justify-center">
+                    <Loader2 className="animate-spin text-blue-500" size={28} />
+                  </div>
+                }>
+                <RouteMap steps={stepsWithDates} />
+              </React.Suspense>
             </div>
           </div>
         </div>

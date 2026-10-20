@@ -238,6 +238,27 @@ export default function PreparationPage({ session, onBackToItinerary }) {
       });
 
       branchSteps.forEach((step) => {
+        // Prix saisis dans les blocs Hébergement / Transport de l'onglet Logistique
+        [
+          { rowType: "lodging", source: "Hébergement", info: step.lodging_info, estimated: step.lodging_price_estimated, paid: step.lodging_price_paid },
+          { rowType: "transport", source: "Transport", info: step.transport_info, estimated: step.transport_price_estimated, paid: step.transport_price_paid },
+        ].forEach(({ rowType, source, info, estimated, paid }) => {
+          const estimatedValue = Number(estimated) || 0;
+          const paidValue = Number(paid) || 0;
+          if (estimatedValue === 0 && paidValue === 0) return;
+          rows.push({
+            id: `${rowType}-${step.id}`,
+            rowType,
+            stepId: step.id,
+            label: (info || "").split("\n")[0].trim() || source,
+            source,
+            scope: `${step.city} · ${step.country}`,
+            reference: step.city,
+            estimated: estimatedValue,
+            paid: paidValue,
+          });
+        });
+
         (step.activities || []).forEach((activity, index) => {
           const estimated = getActivityEstimatedPrice(activity);
           const paid = getActivityPaidPrice(activity);
@@ -331,7 +352,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
           group.estimated += row.estimated;
           group.paid += row.paid;
         }
-      } else if (row.rowType === 'activity') {
+      } else if (row.rowType === 'activity' || row.rowType === 'lodging' || row.rowType === 'transport') {
         const groupId = stepToRootMap[row.stepId];
         const group = groupsMap.get(groupId);
         if (group) {
@@ -401,7 +422,13 @@ export default function PreparationPage({ session, onBackToItinerary }) {
       if (field === 'estimated') updates.budget_estimated = value;
       if (field === 'paid') updates.budget_spent = value;
       await updateStep(row.stepId, updates);
-    } 
+    }
+    else if (row.rowType === "lodging" || row.rowType === "transport") {
+      const updates = {};
+      if (field === 'estimated') updates[`${row.rowType}_price_estimated`] = value;
+      if (field === 'paid') updates[`${row.rowType}_price_paid`] = value;
+      if (Object.keys(updates).length > 0) await updateStep(row.stepId, updates);
+    }
     else if (row.rowType === "activity") {
       const currentStep = steps.find(s => s.id === row.stepId);
       if (!currentStep) return;
@@ -646,7 +673,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                             <tr key={row.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors group/row ${isPending ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
                               <td className="px-4 border-l-2 border-slate-200 dark:border-slate-700"></td>
                               <td className="px-4 py-3 align-middle">
-                                <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.source === "Étape mère" ? "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300" : row.source === "Activité" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"}`}>
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.source === "Étape mère" ? "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300" : row.source === "Activité" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : row.source === "Hébergement" ? "bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300" : row.source === "Transport" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"}`}>
                                   {row.source}
                                 </span>
                               </td>
@@ -654,7 +681,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                                 <EditableText
                                   value={row.label}
                                   onSave={(val) => handleInlineEdit(row, 'title', val)}
-                                  readonly={isReadOnly || row.rowType === 'step'}
+                                  readonly={isReadOnly || row.rowType === 'step' || row.rowType === 'lodging' || row.rowType === 'transport'}
                                 />
                                 {row.reference && <div className="mt-1 text-[11px] text-slate-400">{row.reference}</div>}
                               </td>

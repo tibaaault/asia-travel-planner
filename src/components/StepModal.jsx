@@ -176,6 +176,18 @@ export default function StepModal({
   );
   const [budget, setBudget] = useState(step.budget_estimated || "0");
   const [budgetSpent, setBudgetSpent] = useState(step.budget_spent || "0");
+  const [lodgingPriceEstimated, setLodgingPriceEstimated] = useState(
+    step.lodging_price_estimated || "0",
+  );
+  const [lodgingPricePaid, setLodgingPricePaid] = useState(
+    step.lodging_price_paid || "0",
+  );
+  const [transportPriceEstimated, setTransportPriceEstimated] = useState(
+    step.transport_price_estimated || "0",
+  );
+  const [transportPricePaid, setTransportPricePaid] = useState(
+    step.transport_price_paid || "0",
+  );
 
   const [checklist, setChecklist] = useState(step.checklist || []);
   const [newChecklistItem, setNewChecklistItem] = useState("");
@@ -425,6 +437,10 @@ export default function StepModal({
       transport_status: transportStatus,
       budget_estimated: parseFloat(budget) || 0,
       budget_spent: parseFloat(budgetSpent) || 0,
+      lodging_price_estimated: parseFloat(lodgingPriceEstimated) || 0,
+      lodging_price_paid: parseFloat(lodgingPricePaid) || 0,
+      transport_price_estimated: parseFloat(transportPriceEstimated) || 0,
+      transport_price_paid: parseFloat(transportPricePaid) || 0,
     });
   };
 
@@ -465,6 +481,36 @@ export default function StepModal({
 
   const inputClass =
     "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
+
+  // Prix estimé / payé d'un bloc Hébergement ou Transport
+  const renderPriceInputs = (estimated, setEstimated, paid, setPaid) => (
+    <div className="mt-3 grid grid-cols-2 gap-3">
+      {[
+        { label: "Prix estimé", value: estimated, onChange: setEstimated },
+        { label: "Prix payé", value: paid, onChange: setPaid },
+      ].map((field) => (
+        <label key={field.label} className="block">
+          <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            {field.label}
+          </span>
+          <div className="relative">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={field.value}
+              onChange={(e) => field.onChange(e.target.value)}
+              disabled={isReadOnly}
+              className={`${inputClass} pr-8`}
+            />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
+              €
+            </span>
+          </div>
+        </label>
+      ))}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end overflow-hidden bg-slate-900/60 backdrop-blur-sm transition-opacity">
@@ -1181,6 +1227,12 @@ export default function StepModal({
                       rows="4"
                       className={`${inputClass} min-h-25 resize-y`}
                     />
+                    {renderPriceInputs(
+                      lodgingPriceEstimated,
+                      setLodgingPriceEstimated,
+                      lodgingPricePaid,
+                      setLodgingPricePaid,
+                    )}
                   </div>
 
                   <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 sm:p-6 shadow-sm">
@@ -1202,12 +1254,18 @@ export default function StepModal({
                       rows="4"
                       className={`${inputClass} min-h-25 resize-y`}
                     />
+                    {renderPriceInputs(
+                      transportPriceEstimated,
+                      setTransportPriceEstimated,
+                      transportPricePaid,
+                      setTransportPricePaid,
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 sm:p-6 shadow-sm">
                       <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2 mb-3">
-                        <Wallet size={16} /> Budget Prévu (Étape)
+                        <Wallet size={16} /> Autres frais prévus (Étape)
                       </label>
                       <div className="flex items-center gap-2">
                         <input
@@ -1226,7 +1284,7 @@ export default function StepModal({
                     </div>
                     <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/50 rounded-3xl p-4 sm:p-6 shadow-sm">
                       <label className="text-xs font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-2 mb-3">
-                        <CheckCircle size={16} /> Déjà Dépensé
+                        <CheckCircle size={16} /> Autres frais payés
                       </label>
                       <div className="flex items-center gap-2">
                         <input

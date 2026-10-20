@@ -17,6 +17,8 @@ export const getActivityPaidPrice = (activity) =>
 
 export const getStepEstimatedTotal = (step) =>
   toNumber(step?.budget_estimated) +
+  toNumber(step?.lodging_price_estimated) +
+  toNumber(step?.transport_price_estimated) +
   (step?.activities || []).reduce(
     (acc, activity) => acc + getActivityEstimatedPrice(activity),
     0,
@@ -24,6 +26,8 @@ export const getStepEstimatedTotal = (step) =>
 
 export const getStepPaidTotal = (step) =>
   toNumber(step?.budget_spent) +
+  toNumber(step?.lodging_price_paid) +
+  toNumber(step?.transport_price_paid) +
   (step?.activities || []).reduce(
     (acc, activity) => acc + getActivityPaidPrice(activity),
     0,

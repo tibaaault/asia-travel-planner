@@ -89,7 +89,7 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
           <input
             type="number"
             name="step-duration"
-            placeholder="Jours"
+            placeholder="Nuits"
             min="0"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
@@ -120,7 +120,7 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
 
       <div className="mt-4 flex items-center justify-between">
         <p className="text-xs font-medium text-slate-400">
-          {duration ? `Sera affiché comme : ${formatDaysNights(duration)}` : 'Indique la durée en jours'}
+          {duration ? `Sera affiché comme : ${formatDaysNights(duration)}` : 'Indique le nombre de nuits'}
         </p>
         <button
           type="submit"

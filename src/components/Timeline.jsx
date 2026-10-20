@@ -263,6 +263,11 @@ export default function Timeline({ session }) {
       if (!countryStays[step.country]) countryStays[step.country] = 0;
       countryStays[step.country] += Number(step.duration || 0);
     });
+    // La durée est en nuits ; un visa compte les jours de présence,
+    // arrivée et départ inclus : une nuit de plus.
+    Object.keys(countryStays).forEach((country) => {
+      countryStays[country] += 1;
+    });
     return countryStays;
   }, [travelSteps]);
   

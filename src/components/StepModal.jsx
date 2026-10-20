@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useNotes } from "../hooks/useNotes";
 import { useDocuments } from "../hooks/useDocuments";
-import { formatDaysNights, getNightsFromDays } from "../utils/duration";
+import { formatDaysNights, getDaysFromNights } from "../utils/duration";
 import { geocodePlace } from "../utils/geocoding";
 
 const getWeatherEmoji = (code) => {
@@ -197,7 +197,7 @@ export default function StepModal({
   const [localAmount, setLocalAmount] = useState("");
   const [weather, setWeather] = useState(null);
 
-  const editNights = getNightsFromDays(editDuration);
+  const editDays = getDaysFromNights(editDuration);
 
   useEffect(() => {
     const savedName = localStorage.getItem("travel_username");
@@ -547,10 +547,10 @@ export default function StepModal({
                       value={editDuration}
                       onChange={(e) => setEditDuration(e.target.value)}
                       className={`${inputClass} w-full sm:w-32`}
-                      placeholder="Jours"
+                      placeholder="Nuits"
                     />
                     <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                      jours / {editNights} nuit{editNights > 1 ? "s" : ""}
+                      nuit{editDuration > 1 ? "s" : ""} / {editDays} jour{editDays > 1 ? "s" : ""}
                     </span>
                   </div>
                   <div className="flex gap-2 pt-2">

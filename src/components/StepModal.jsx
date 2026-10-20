@@ -152,6 +152,8 @@ export default function StepModal({
   const [editCity, setEditCity] = useState(step.city);
   const [editCountry, setEditCountry] = useState(step.country);
   const [editDuration, setEditDuration] = useState(step.duration);
+  const [editTripSegment, setEditTripSegment] = useState(step.trip_segment || "");
+  const isTopLevelStep = !step.parent_id || step.parent_id === "null";
 
   const [newNote, setNewNote] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null);
@@ -303,6 +305,7 @@ export default function StepModal({
       city: editCity,
       country: editCountry,
       duration: Number.isNaN(parsedDuration) ? 0 : parsedDuration,
+      ...(isTopLevelStep && { trip_segment: editTripSegment.trim() || null }),
     });
     setIsEditingHeader(false);
   };
@@ -553,6 +556,21 @@ export default function StepModal({
                       nuit{editDuration > 1 ? "s" : ""} / {editDays} jour{editDays > 1 ? "s" : ""}
                     </span>
                   </div>
+                  {isTopLevelStep && (
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Début d'un voyage (optionnel)
+                      </span>
+                      <input
+                        type="text"
+                        value={editTripSegment}
+                        onChange={(e) => setEditTripSegment(e.target.value)}
+                        className={inputClass}
+                        placeholder="Ex. Vietnam partie 2 — vide si l'étape continue le voyage précédent"
+                        autoComplete="off"
+                      />
+                    </label>
+                  )}
                   <div className="flex gap-2 pt-2">
                     <button
                       onClick={handleSaveHeader}

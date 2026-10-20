@@ -21,6 +21,7 @@ import {
   getTripEstimatedTotal,
   getTripPaidTotal,
   getTopLevelSteps,
+  getTripSegments,
 } from "../utils/budget";
 
 const STORAGE_KEY = "travel_preparation_items_v1";
@@ -141,6 +142,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
   
   // État pour les groupes dépliés (Accordéon)
   const [expandedGroups, setExpandedGroups] = useState(new Set());
+  const [expandedSegments, setExpandedSegments] = useState(new Set());
 
   const getStorageKey = (tripId) => `${STORAGE_KEY}_${tripId || "draft"}`;
 
@@ -377,11 +379,137 @@ export default function PreparationPage({ session, onBackToItinerary }) {
     return Array.from(groupsMap.values()).filter(g => g.parentRow || g.children.length > 0);
   }, [budgetDetailRows, steps, ledgerFilter]);
 
+  // Regroupe les branches par voyage (Indonésie, Vietnam partie 1...) ;
+  // les frais non rattachés à une étape restent dans "Général" à part.
+  const segmentedGroups = useMemo(() => {
+    const groupsById = new Map(groupedRows.map((group) => [group.id, group]));
+    const segments = getTripSegments(steps)
+      .map((segment) => {
+        const groups = segment.stepIds.map((id) => groupsById.get(id)).filter(Boolean);
+        return {
+          ...segment,
+          groups,
+          estimated: groups.reduce((acc, group) => acc + group.estimated, 0),
+          paid: groups.reduce((acc, group) => acc + group.paid, 0),
+        };
+      })
+      .filter((segment) => segment.groups.length > 0);
+    const generalGroup = groupsById.get('general');
+    return { segments, generalGroup };
+  }, [groupedRows, steps]);
+
+  const toggleSegment = (segmentId) => {
+    const next = new Set(expandedSegments);
+    if (next.has(segmentId)) next.delete(segmentId);
+    else next.add(segmentId);
+    setExpandedSegments(next);
+  };
+
   const toggleGroup = (groupId) => {
     const newExpanded = new Set(expandedGroups);
     if (newExpanded.has(groupId)) newExpanded.delete(groupId);
     else newExpanded.add(groupId);
     setExpandedGroups(newExpanded);
+  };
+
+  const renderGroup = (group) => {
+    const isExpanded = expandedGroups.has(group.id);
+    const gap = group.estimated - group.paid;
+
+    return (
+      <React.Fragment key={group.id}>
+        {/* LIGNE GROUPE (ÉTAPE MÈRE OU GÉNÉRAL) */}
+        <tr 
+          className="bg-slate-50/80 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          onClick={() => toggleGroup(group.id)}
+        >
+          <td className="px-4 py-3 text-slate-400">
+            {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+          </td>
+          <td className="px-4 py-3 align-middle">
+            <span className="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200">
+              {group.id === 'general' ? 'Général' : 'Branche'}
+            </span>
+          </td>
+          <td className="px-4 py-3 align-middle font-black text-slate-900 dark:text-white text-base">
+            {group.label}
+            {group.country && <span className="ml-2 text-xs font-normal text-slate-500">{group.country}</span>}
+          </td>
+          <td className="px-4 py-3 text-center text-xs font-bold text-slate-400 uppercase">
+            {group.children.length + (group.parentRow ? 1 : 0)} Lignes
+          </td>
+          <td className="px-4 py-3 align-middle text-right font-black text-slate-900 dark:text-white">
+            {group.estimated.toLocaleString("fr-FR")} €
+          </td>
+          <td className="px-4 py-3 align-middle text-right font-black text-slate-900 dark:text-white">
+            {group.paid.toLocaleString("fr-FR")} €
+          </td>
+          <td className={`px-4 py-3 align-middle text-right font-black ${gap > 0 ? "text-amber-600 dark:text-amber-400" : gap < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+            {gap.toLocaleString("fr-FR")} €
+          </td>
+          <td></td>
+        </tr>
+
+        {/* LIGNES ENFANTS (DÉTAILS) */}
+        {isExpanded && [group.parentRow, ...group.children].filter(Boolean).map(row => {
+          const childGap = row.estimated - row.paid;
+          const isPending = row.estimated > 0 && row.paid === 0;
+
+          return (
+            <tr key={row.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors group/row ${isPending ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
+              <td className="px-4 border-l-2 border-slate-200 dark:border-slate-700"></td>
+              <td className="px-4 py-3 align-middle">
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.source === "Étape mère" ? "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300" : row.source === "Activité" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : row.source === "Hébergement" ? "bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300" : row.source === "Transport" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"}`}>
+                  {row.source}
+                </span>
+              </td>
+              <td className="px-4 py-3 align-middle">
+                <EditableText
+                  value={row.label}
+                  onSave={(val) => handleInlineEdit(row, 'title', val)}
+                  readonly={isReadOnly || row.rowType === 'step' || row.rowType === 'lodging' || row.rowType === 'transport'}
+                />
+                {row.reference && <div className="mt-1 text-[11px] text-slate-400">{row.reference}</div>}
+              </td>
+              <td className="px-4 py-3 align-middle text-center">
+                {row.rowType === "preparation" ? (
+                  <EditableSelect
+                    value={row.payment}
+                    options={PAYMENT_META}
+                    onSave={(val) => handleInlineEdit(row, 'payment', val)}
+                    readonly={isReadOnly}
+                  />
+                ) : (
+                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.paid > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:text-emerald-300' : row.estimated > 0 ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/10 dark:text-amber-300' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300'}`}>
+                    {row.paid > 0 ? 'Payé' : row.estimated > 0 ? 'À compléter' : 'Neutre'}
+                  </span>
+                )}
+              </td>
+              <td className="px-4 py-3 align-middle text-right">
+                <EditableCurrency value={row.estimated} onSave={(val) => handleInlineEdit(row, 'estimated', val)} readonly={isReadOnly} />
+              </td>
+              <td className="px-4 py-3 align-middle text-right">
+                <EditableCurrency
+                  value={row.paid}
+                  onSave={(val) => handleInlineEdit(row, 'paid', val)}
+                  readonly={isReadOnly || row.rowType === 'preparation'}
+                />
+              </td>
+              <td className={`px-4 py-3 align-middle text-right font-black ${childGap > 0 ? "text-amber-600 dark:text-amber-400" : childGap < 0 ? "text-red-600 dark:text-red-400" : "text-slate-300 dark:text-slate-600"}`}>
+                {childGap !== 0 ? `${childGap.toLocaleString("fr-FR")} €` : '-'}
+              </td>
+              <td className="px-4 py-3 align-middle text-center">
+                {!isReadOnly && row.rowType === "preparation" && (
+                  <button onClick={() => deleteItem(row.itemId)} aria-label={`Supprimer ${row.label}`} title="Supprimer" className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover/row:opacity-100">
+                    <Trash2 size={16} className="mx-auto" />
+                  </button>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </React.Fragment>
+    );
   };
 
   const pendingBudgetRows = budgetDetailRows.filter((row) => row.estimated > 0 && row.paid === 0);
@@ -626,105 +754,47 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-950/50">
-                  {groupedRows.map(group => {
-                    const isExpanded = expandedGroups.has(group.id);
-                    const gap = group.estimated - group.paid;
+                  {segmentedGroups.segments.map(segment => {
+                    const isSegmentExpanded = expandedSegments.has(segment.id);
+                    const segmentGap = segment.estimated - segment.paid;
 
                     return (
-                      <React.Fragment key={group.id}>
-                        {/* LIGNE GROUPE (ÉTAPE MÈRE OU GÉNÉRAL) */}
-                        <tr 
-                          className="bg-slate-50/80 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                          onClick={() => toggleGroup(group.id)}
+                      <React.Fragment key={segment.id}>
+                        {/* LIGNE VOYAGE (INDONÉSIE, VIETNAM PARTIE 1...) */}
+                        <tr
+                          className="bg-slate-900 text-white dark:bg-slate-950 hover:bg-slate-800 transition-colors cursor-pointer"
+                          onClick={() => toggleSegment(segment.id)}
                         >
-                          <td className="px-4 py-3 text-slate-400">
-                            {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                          <td className="px-4 py-4 text-slate-300">
+                            {isSegmentExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                           </td>
-                          <td className="px-4 py-3 align-middle">
-                            <span className="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200">
-                              {group.id === 'general' ? 'Général' : 'Branche'}
+                          <td className="px-4 py-4 align-middle">
+                            <span className="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] bg-amber-400 text-slate-950">
+                              Voyage
                             </span>
                           </td>
-                          <td className="px-4 py-3 align-middle font-black text-slate-900 dark:text-white text-base">
-                            {group.label}
-                            {group.country && <span className="ml-2 text-xs font-normal text-slate-500">{group.country}</span>}
+                          <td className="px-4 py-4 align-middle text-lg font-black">
+                            {segment.label}
                           </td>
-                          <td className="px-4 py-3 text-center text-xs font-bold text-slate-400 uppercase">
-                            {group.children.length + (group.parentRow ? 1 : 0)} Lignes
+                          <td className="px-4 py-4 text-center text-xs font-bold uppercase text-slate-400">
+                            {segment.groups.length} étape{segment.groups.length > 1 ? "s" : ""}
                           </td>
-                          <td className="px-4 py-3 align-middle text-right font-black text-slate-900 dark:text-white">
-                            {group.estimated.toLocaleString("fr-FR")} €
+                          <td className="px-4 py-4 align-middle text-right text-base font-black">
+                            {segment.estimated.toLocaleString("fr-FR")} €
                           </td>
-                          <td className="px-4 py-3 align-middle text-right font-black text-slate-900 dark:text-white">
-                            {group.paid.toLocaleString("fr-FR")} €
+                          <td className="px-4 py-4 align-middle text-right text-base font-black">
+                            {segment.paid.toLocaleString("fr-FR")} €
                           </td>
-                          <td className={`px-4 py-3 align-middle text-right font-black ${gap > 0 ? "text-amber-600 dark:text-amber-400" : gap < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                            {gap.toLocaleString("fr-FR")} €
+                          <td className={`px-4 py-4 align-middle text-right text-base font-black ${segmentGap > 0 ? "text-amber-400" : segmentGap < 0 ? "text-red-400" : "text-emerald-400"}`}>
+                            {segmentGap.toLocaleString("fr-FR")} €
                           </td>
                           <td></td>
                         </tr>
-
-                        {/* LIGNES ENFANTS (DÉTAILS) */}
-                        {isExpanded && [group.parentRow, ...group.children].filter(Boolean).map(row => {
-                          const childGap = row.estimated - row.paid;
-                          const isPending = row.estimated > 0 && row.paid === 0;
-
-                          return (
-                            <tr key={row.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors group/row ${isPending ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
-                              <td className="px-4 border-l-2 border-slate-200 dark:border-slate-700"></td>
-                              <td className="px-4 py-3 align-middle">
-                                <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.source === "Étape mère" ? "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300" : row.source === "Activité" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : row.source === "Hébergement" ? "bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300" : row.source === "Transport" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"}`}>
-                                  {row.source}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 align-middle">
-                                <EditableText
-                                  value={row.label}
-                                  onSave={(val) => handleInlineEdit(row, 'title', val)}
-                                  readonly={isReadOnly || row.rowType === 'step' || row.rowType === 'lodging' || row.rowType === 'transport'}
-                                />
-                                {row.reference && <div className="mt-1 text-[11px] text-slate-400">{row.reference}</div>}
-                              </td>
-                              <td className="px-4 py-3 align-middle text-center">
-                                {row.rowType === "preparation" ? (
-                                  <EditableSelect
-                                    value={row.payment}
-                                    options={PAYMENT_META}
-                                    onSave={(val) => handleInlineEdit(row, 'payment', val)}
-                                    readonly={isReadOnly}
-                                  />
-                                ) : (
-                                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.paid > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:text-emerald-300' : row.estimated > 0 ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/10 dark:text-amber-300' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300'}`}>
-                                    {row.paid > 0 ? 'Payé' : row.estimated > 0 ? 'À compléter' : 'Neutre'}
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 align-middle text-right">
-                                <EditableCurrency value={row.estimated} onSave={(val) => handleInlineEdit(row, 'estimated', val)} readonly={isReadOnly} />
-                              </td>
-                              <td className="px-4 py-3 align-middle text-right">
-                                <EditableCurrency
-                                  value={row.paid}
-                                  onSave={(val) => handleInlineEdit(row, 'paid', val)}
-                                  readonly={isReadOnly || row.rowType === 'preparation'}
-                                />
-                              </td>
-                              <td className={`px-4 py-3 align-middle text-right font-black ${childGap > 0 ? "text-amber-600 dark:text-amber-400" : childGap < 0 ? "text-red-600 dark:text-red-400" : "text-slate-300 dark:text-slate-600"}`}>
-                                {childGap !== 0 ? `${childGap.toLocaleString("fr-FR")} €` : '-'}
-                              </td>
-                              <td className="px-4 py-3 align-middle text-center">
-                                {!isReadOnly && row.rowType === "preparation" && (
-                                  <button onClick={() => deleteItem(row.itemId)} aria-label={`Supprimer ${row.label}`} title="Supprimer" className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover/row:opacity-100">
-                                    <Trash2 size={16} className="mx-auto" />
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {isSegmentExpanded && segment.groups.map(renderGroup)}
                       </React.Fragment>
                     );
                   })}
+                  {segmentedGroups.generalGroup && (segmentedGroups.generalGroup.parentRow || segmentedGroups.generalGroup.children.length > 0) && renderGroup(segmentedGroups.generalGroup)}
                 </tbody>
               </table>
             </div>

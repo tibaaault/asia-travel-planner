@@ -69,3 +69,28 @@ export const getParentStepBudgetBreakdown = (steps) => {
     };
   });
 };
+
+// Voyages (ex. "Indonésie", "Vietnam partie 1") : une étape mère qui porte
+// un `trip_segment` ouvre un voyage, les étapes mères suivantes en font
+// partie jusqu'au prochain nom. Renvoie la liste ordonnée des voyages avec
+// les ids de leurs étapes mères.
+export const DEFAULT_SEGMENT_LABEL = "Voyage";
+
+export const getTripSegments = (steps) => {
+  const sortedSteps = [...steps].sort((a, b) => a.position - b.position);
+  const segments = [];
+
+  getTopLevelSteps(sortedSteps).forEach((step) => {
+    const label = (step.trip_segment || "").trim();
+    if (label || segments.length === 0) {
+      segments.push({
+        id: `segment-${step.id}`,
+        label: label || DEFAULT_SEGMENT_LABEL,
+        stepIds: [],
+      });
+    }
+    segments[segments.length - 1].stepIds.push(step.id);
+  });
+
+  return segments;
+};

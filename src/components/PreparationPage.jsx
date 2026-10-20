@@ -18,8 +18,6 @@ import TripSummary from "./TripSummary";
 import {
   getActivityEstimatedPrice,
   getActivityPaidPrice,
-  getStepEstimatedTotal,
-  getStepPaidTotal,
   getTripEstimatedTotal,
   getTripPaidTotal,
   getTopLevelSteps,
@@ -233,8 +231,10 @@ export default function PreparationPage({ session, onBackToItinerary }) {
         source: "Étape mère",
         scope: parent.country,
         reference: `${branchSteps.length - 1} sous-étapes`,
-        estimated: getStepEstimatedTotal(parent),
-        paid: getStepPaidTotal(parent),
+        // Budget propre de l'étape uniquement : ses activités ont leurs propres
+        // lignes ci-dessous, les inclure ici les compterait deux fois.
+        estimated: Number(parent.budget_estimated) || 0,
+        paid: Number(parent.budget_spent) || 0,
       });
 
       branchSteps.forEach((step) => {

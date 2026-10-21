@@ -366,10 +366,14 @@ export default function StepModal({
               title: activity.title.trim(),
               place,
               notes: activity.notes?.trim() || "",
+              // Un estimé saisi à 0 reste à 0 ; on ne reprend le prix payé
+              // que si l'estimé n'a jamais été renseigné.
               estimatedPrice:
-                Number.parseFloat(activity.estimatedPrice) ||
-                Number.parseFloat(activity.price) ||
-                0,
+                activity.estimatedPrice === undefined ||
+                activity.estimatedPrice === null ||
+                activity.estimatedPrice === ""
+                  ? Number.parseFloat(activity.price) || 0
+                  : Number.parseFloat(activity.estimatedPrice) || 0,
               price: Number.parseFloat(activity.price) || 0,
               lat: location?.lat ?? activity.lat ?? null,
               lng: location?.lng ?? activity.lng ?? null,

@@ -1022,7 +1022,9 @@ export default function StepModal({
                     <h3 className="font-black text-slate-900 dark:text-white text-lg sm:text-xl">
                       Programme prévu
                     </h3>
-                    {!isReadOnly && activities.length > 0 && (
+                    {/* Reste visible quand on vient de supprimer la dernière
+                        activité, pour pouvoir enregistrer la liste vide. */}
+                    {!isReadOnly && (activities.length > 0 || (step.activities || []).length > 0) && (
                       <button
                         onClick={handleSaveActivities}
                         disabled={savingActivities}

@@ -1,5 +1,5 @@
 import { Wallet, Globe2, CalendarDays, Map, Navigation, ShieldCheck, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { formatDaysNights } from "../utils/duration";
+import { getDaysFromNights } from "../utils/duration";
 import {
   getTopLevelSteps,
   getTripEstimatedTotal,
@@ -30,7 +30,8 @@ export default function TripSummary({ steps, visaStats, totalDistance = 0 }) {
   const summaryCards = [
     {
       label: "Durée",
-      value: formatDaysNights(totalDays, { compact: true }),
+      // `totalDays` additionne des nuits : le voyage dure une journée de plus.
+      value: `${getDaysFromNights(totalDays)} jours`,
       icon: <CalendarDays size={18} />,
       colorClass: "text-blue-600 dark:text-blue-400",
       bgClass: "bg-blue-50 dark:bg-blue-500/10",
@@ -51,7 +52,7 @@ export default function TripSummary({ steps, visaStats, totalDistance = 0 }) {
     },
     {
       label: "Dépensé",
-      value: `${totalSpent.toLocaleString("fr-FR")} €`,
+      value: `${Math.round(totalSpent).toLocaleString("fr-FR")} €`,
       icon: <Wallet size={18} />,
       colorClass: isOverBudget ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400",
       bgClass: isOverBudget ? "bg-red-50 dark:bg-red-500/10" : "bg-emerald-50 dark:bg-emerald-500/10",
@@ -84,12 +85,12 @@ export default function TripSummary({ steps, visaStats, totalDistance = 0 }) {
         {/* Grille de statistiques 2x2 */}
         <div className="grid grid-cols-2 gap-3">
           {summaryCards.map((card) => (
-            <div key={card.label} className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-950/40 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${card.bgClass} ${card.colorClass}`}>
+            <div key={card.label} className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-950/40 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 sm:gap-3">
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10 ${card.bgClass} ${card.colorClass}`}>
                 {card.icon}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-lg font-black text-slate-900 dark:text-white leading-tight">
+                <p className="truncate text-base font-black text-slate-900 dark:text-white leading-tight sm:text-lg">
                   {card.value}
                 </p>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -117,7 +118,7 @@ export default function TripSummary({ steps, visaStats, totalDistance = 0 }) {
           <div className="mt-5">
             <div className="mb-2 flex items-end justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Budget (Estimé : {totalBudget.toLocaleString("fr-FR")} €)
+                Budget (Estimé : {Math.round(totalBudget).toLocaleString("fr-FR")} €)
               </span>
               <span className={`text-sm font-black ${isOverBudget ? "text-red-500" : "text-emerald-500"}`}>
                 {Math.round((totalSpent / totalBudget) * 100)}%

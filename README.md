@@ -33,6 +33,10 @@ Toutes les tables sont sécurisées par RLS (Row Level Security). Les visiteurs 
   - Header : Affiche la météo en temps réel via l'API `open-meteo.com` (traduit en Emojis) et permet l'édition de la ville/durée.
 - `TripSummary.jsx` : Tableau de bord global (Total des jours, pays, étapes, et jauge de progression du budget).
 - `BackpackModal.jsx` : Checklist globale du sac à dos sauvegardée dans le `localStorage` du navigateur.
+- `App.jsx` : Coquille de l'app. Charge les étapes une seule fois (`useSteps`) et les partage entre les vues. Sur téléphone : barre de navigation en bas (`MobileNav.jsx` : Itinéraire, Carte, Budget, Plus) et bouton central de saisie rapide.
+- `QuickAddSheet.jsx` : Saisie rapide d'une dépense (montant en monnaie locale converti en euros, intitulé, étape), enregistrée comme activité payée de l'étape.
+- `TodayCard.jsx` : Carte "Aujourd'hui" en tête de l'itinéraire (étape en cours, hébergement, étape suivante), calculée par `utils/dates.js`.
+- `MorePage.jsx` : Onglet "Plus" du téléphone (compte, date de départ, sac à dos, export).
 - `Auth.jsx` : Mini-formulaire de connexion (Email/Mot de passe) gérant la session Supabase.
 
 ### 🎨 UI/UX & Spécificités

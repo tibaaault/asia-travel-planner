@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, MapPin, Network, CalendarDays } from "lucide-react";
 import { formatDaysNights } from "../utils/duration";
 import { geocodePlace } from "../utils/geocoding";
+import { inputClass } from "../utils/ui";
 
 export default function AddStepForm({ onAddStep, parentSteps = [] }) {
   const [city, setCity] = useState("");
@@ -39,7 +40,6 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
     setParentId("");
   };
 
-  const inputClass = "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
 
   return (
     <form onSubmit={handleSubmit} autoComplete="off" className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 transition-all">
@@ -88,6 +88,7 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
           </div>
           <input
             type="number"
+            inputMode="numeric"
             name="step-duration"
             placeholder="Nuits"
             min="0"
@@ -124,7 +125,7 @@ export default function AddStepForm({ onAddStep, parentSteps = [] }) {
         </p>
         <button
           type="submit"
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-slate-800 hover:shadow-md dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-slate-800 hover:shadow-md dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
         >
           Valider
         </button>

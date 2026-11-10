@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import React from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   Send,
@@ -23,11 +23,24 @@ import {
   Map as MapIcon,
   Calendar,
   ArrowLeft,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { useNotes } from "../hooks/useNotes";
 import { useDocuments } from "../hooks/useDocuments";
 import { formatDaysNights, getDaysFromNights } from "../utils/duration";
 import { geocodePlace } from "../utils/geocoding";
+import { useExchangeRates } from "../hooks/useExchangeRates";
+import {
+  CURRENCIES,
+  formatEuros,
+  getCurrencyForCountry,
+} from "../utils/currency";
+import { inputClass } from "../utils/ui";
+import { createId } from "../utils/ids";
+
+const TAB_STORAGE_KEY = "step_modal_tab";
+const TAB_IDS = ["notes", "checklist", "activities", "logistics", "documents"];
 
 const getWeatherEmoji = (code) => {
   if (code === 0) return "☀️";
@@ -102,7 +115,7 @@ const StatusBadgeSelector = ({ currentStatus, onChange, disabled }) => {
   ];
 
   return (
-    <div className="flex flex-wrap gap-2 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-xl w-fit border border-slate-200 dark:border-slate-700">
+    <div className="flex w-full flex-wrap gap-2 bg-slate-50 dark:bg-slate-900/50 p-1.5 rounded-xl sm:w-fit border border-slate-200 dark:border-slate-700">
       {statuses.map((s) => {
         const isActive = currentStatus === s.value;
         return (
@@ -111,7 +124,7 @@ const StatusBadgeSelector = ({ currentStatus, onChange, disabled }) => {
             type="button"
             disabled={disabled}
             onClick={() => onChange(s.value)}
-            className={`text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-all flex-1 sm:flex-none ${
+            className={`min-h-10 sm:min-h-0 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-all flex-1 sm:flex-none ${
               isActive
                 ? s.activeColor
                 : `${s.color} hover:bg-slate-200 dark:hover:bg-slate-700`
@@ -124,10 +137,29 @@ const StatusBadgeSelector = ({ currentStatus, onChange, disabled }) => {
   );
 };
 
+// Placer une activité sur la carte ne doit jamais bloquer son
+// enregistrement : sur un réseau capricieux, on abandonne après 4 s.
+const geocodeWithTimeout = (query, ms = 4000) =>
+  Promise.race([
+    geocodePlace(query),
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]).catch(() => null);
+
+// État dont chaque modification signale "il y a quelque chose à enregistrer".
+const useTrackedState = (initialValue, onChange) => {
+  const [value, setValue] = useState(initialValue);
+  const setAndMark = (next) => {
+    setValue(next);
+    onChange();
+  };
+  return [value, setAndMark];
+};
+
 export default function StepModal({
   step,
   onClose,
   onUpdateStep,
+  onDeleteStep,
   isReadOnly,
 }) {
   // 🚫 BLOCAGE DU SCROLL DU FOND SUR MOBILE
@@ -144,7 +176,16 @@ export default function StepModal({
   const { documents, loadingDocs, uploading, uploadDocument, deleteDocument } =
     useDocuments(step.id);
 
-  const [activeTab, setActiveTab] = useState("notes");
+  // On rouvre la fiche sur le dernier onglet utilisé : en voyage on revient
+  // presque toujours au même (activités ou logistique).
+  const [activeTab, setActiveTabState] = useState(() => {
+    const saved = localStorage.getItem(TAB_STORAGE_KEY);
+    return TAB_IDS.includes(saved) ? saved : "notes";
+  });
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    localStorage.setItem(TAB_STORAGE_KEY, tab);
+  };
   const [username, setUsername] = useState("");
   const [isEditingUsername, setIsEditingUsername] = useState(false);
 
@@ -167,35 +208,52 @@ export default function StepModal({
     useState("");
   const [newActivityPaidPrice, setNewActivityPaidPrice] = useState("");
   const [savingActivities, setSavingActivities] = useState(false);
+  const [activitiesDirty, setActivitiesDirty] = useState(false);
+  const [expandedActivityId, setExpandedActivityId] = useState(null);
+  const [showNewActivityDetails, setShowNewActivityDetails] = useState(false);
 
-  const [lodging, setLodging] = useState(step.lodging_info || "");
-  const [transport, setTransport] = useState(step.transport_info || "");
-  const [lodgingStatus, setLodgingStatus] = useState(
+  const [logisticsDirty, setLogisticsDirty] = useState(false);
+  const [logisticsSaved, setLogisticsSaved] = useState(false);
+  const markLogisticsDirty = () => {
+    setLogisticsDirty(true);
+    setLogisticsSaved(false);
+  };
+  const useLogisticsField = (initialValue) =>
+    useTrackedState(initialValue, markLogisticsDirty);
+  const [lodging, setLodging] = useLogisticsField(step.lodging_info || "");
+  const [transport, setTransport] = useLogisticsField(
+    step.transport_info || "",
+  );
+  const [lodgingStatus, setLodgingStatus] = useLogisticsField(
     step.lodging_status || "A_RESERVER",
   );
-  const [transportStatus, setTransportStatus] = useState(
+  const [transportStatus, setTransportStatus] = useLogisticsField(
     step.transport_status || "A_RESERVER",
   );
-  const [budget, setBudget] = useState(step.budget_estimated || "0");
-  const [budgetSpent, setBudgetSpent] = useState(step.budget_spent || "0");
-  const [lodgingPriceEstimated, setLodgingPriceEstimated] = useState(
+  const [budget, setBudget] = useLogisticsField(step.budget_estimated || "0");
+  const [budgetSpent, setBudgetSpent] = useLogisticsField(
+    step.budget_spent || "0",
+  );
+  const [lodgingPriceEstimated, setLodgingPriceEstimated] = useLogisticsField(
     step.lodging_price_estimated || "0",
   );
-  const [lodgingPricePaid, setLodgingPricePaid] = useState(
+  const [lodgingPricePaid, setLodgingPricePaid] = useLogisticsField(
     step.lodging_price_paid || "0",
   );
-  const [transportPriceEstimated, setTransportPriceEstimated] = useState(
-    step.transport_price_estimated || "0",
-  );
-  const [transportPricePaid, setTransportPricePaid] = useState(
+  const [transportPriceEstimated, setTransportPriceEstimated] =
+    useLogisticsField(step.transport_price_estimated || "0");
+  const [transportPricePaid, setTransportPricePaid] = useLogisticsField(
     step.transport_price_paid || "0",
   );
 
   const [checklist, setChecklist] = useState(step.checklist || []);
   const [newChecklistItem, setNewChecklistItem] = useState("");
 
-  const [exchangeRates, setExchangeRates] = useState(null);
-  const [localCurrency, setLocalCurrency] = useState("THB");
+  const { rates: exchangeRates } = useExchangeRates(activeTab === "logistics");
+  const [localCurrency, setLocalCurrency] = useState(() => {
+    const countryCurrency = getCurrencyForCountry(step.country);
+    return countryCurrency === "EUR" ? "THB" : countryCurrency;
+  });
   const [localAmount, setLocalAmount] = useState("");
   const [weather, setWeather] = useState(null);
 
@@ -264,15 +322,6 @@ export default function StepModal({
       .catch((err) => console.error("Erreur météo:", err));
   }, [step.lat, step.lng, step.computedStartDate]);
 
-  useEffect(() => {
-    if (activeTab === "logistics" && !exchangeRates) {
-      fetch("https://open.er-api.com/v6/latest/EUR")
-        .then((res) => res.json())
-        .then((data) => setExchangeRates(data.rates))
-        .catch((err) => console.error("Erreur devises:", err));
-    }
-  }, [activeTab, exchangeRates]);
-
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -310,59 +359,25 @@ export default function StepModal({
     setIsEditingHeader(false);
   };
 
-  const addActivityDraft = () => {
-    if (!newActivityTitle.trim() || isReadOnly) return;
-    setActivities((currentActivities) => [
-      ...currentActivities,
-      {
-        id: Date.now().toString(),
-        title: newActivityTitle.trim(),
-        place: newActivityPlace.trim(),
-        notes: newActivityNotes.trim(),
-        estimatedPrice: newActivityEstimatedPrice,
-        price: newActivityPaidPrice,
-        lat: null,
-        lng: null,
-      },
-    ]);
-    setNewActivityTitle("");
-    setNewActivityPlace("");
-    setNewActivityNotes("");
-    setNewActivityEstimatedPrice("");
-    setNewActivityPaidPrice("");
-  };
-
-  const updateActivityField = (activityId, field, value) => {
-    setActivities((currentActivities) =>
-      currentActivities.map((activity) =>
-        activity.id === activityId ? { ...activity, [field]: value } : activity,
-      ),
-    );
-  };
-
-  const deleteActivity = (activityId) => {
-    setActivities((currentActivities) =>
-      currentActivities.filter((activity) => activity.id !== activityId),
-    );
-  };
-
-  const handleSaveActivities = async (e) => {
-    e.preventDefault();
-    if (isReadOnly) return;
-
+  // Enregistre la liste d'activités. Seuls les lieux nouveaux ou modifiés
+  // sont géocodés, et un échec (hors ligne) n'empêche pas l'enregistrement.
+  const persistActivities = async (list, geocodeIds) => {
     setSavingActivities(true);
     try {
       const normalizedActivities = await Promise.all(
-        activities
+        list
           .filter((activity) => activity.title?.trim())
           .map(async (activity) => {
             const place = activity.place?.trim() || "";
-            const location = place
-              ? await geocodePlace(`${place}, ${editCity}, ${editCountry}`)
-              : null;
+            let location = null;
+            if (place && geocodeIds.has(activity.id)) {
+              location = await geocodeWithTimeout(
+                `${place}, ${editCity}, ${editCountry}`,
+              );
+            }
 
             return {
-              id: activity.id || Date.now().toString(),
+              id: activity.id || createId(),
               title: activity.title.trim(),
               place,
               notes: activity.notes?.trim() || "",
@@ -382,10 +397,98 @@ export default function StepModal({
       );
 
       setActivities(normalizedActivities);
+      setActivitiesDirty(false);
       await onUpdateStep(step.id, { activities: normalizedActivities });
     } finally {
       setSavingActivities(false);
     }
+  };
+
+  // Activités dont le lieu a changé depuis le dernier enregistrement (ou
+  // n'a jamais pu être placé sur la carte).
+  const getPlaceChangedIds = (list) => {
+    const savedById = new Map(
+      (step.activities || []).map((activity) => [activity.id, activity]),
+    );
+    return new Set(
+      list
+        .filter((activity) => {
+          const place = activity.place?.trim() || "";
+          const saved = savedById.get(activity.id);
+          return (
+            place &&
+            (!saved || (saved.place || "").trim() !== place || saved.lat == null)
+          );
+        })
+        .map((activity) => activity.id),
+    );
+  };
+
+  const addActivity = async () => {
+    if (!newActivityTitle.trim() || isReadOnly || savingActivities) return;
+    const nextActivities = [
+      ...activities,
+      {
+        id: createId(),
+        title: newActivityTitle.trim(),
+        place: newActivityPlace.trim(),
+        notes: newActivityNotes.trim(),
+        estimatedPrice: newActivityEstimatedPrice,
+        price: newActivityPaidPrice,
+        lat: null,
+        lng: null,
+      },
+    ];
+    setNewActivityTitle("");
+    setNewActivityPlace("");
+    setNewActivityNotes("");
+    setNewActivityEstimatedPrice("");
+    setNewActivityPaidPrice("");
+    setShowNewActivityDetails(false);
+    await persistActivities(nextActivities, getPlaceChangedIds(nextActivities));
+  };
+
+  const updateActivityField = (activityId, field, value) => {
+    setActivitiesDirty(true);
+    setActivities((currentActivities) =>
+      currentActivities.map((activity) =>
+        activity.id === activityId ? { ...activity, [field]: value } : activity,
+      ),
+    );
+  };
+
+  const deleteActivity = async (activityId) => {
+    if (isReadOnly || savingActivities) return;
+    const target = activities.find((activity) => activity.id === activityId);
+    if (
+      !window.confirm(
+        `Supprimer « ${target?.title || "cette activité"} » ?`,
+      )
+    )
+      return;
+    const nextActivities = activities.filter(
+      (activity) => activity.id !== activityId,
+    );
+    await persistActivities(nextActivities, getPlaceChangedIds(nextActivities));
+  };
+
+  const handleSaveActivities = async (e) => {
+    e?.preventDefault();
+    if (isReadOnly) return;
+    await persistActivities(activities, getPlaceChangedIds(activities));
+  };
+
+  // Fermeture : on prévient s'il reste des modifications non enregistrées.
+  const requestClose = () => {
+    if (
+      !isReadOnly &&
+      (activitiesDirty || logisticsDirty) &&
+      !window.confirm(
+        "Des modifications ne sont pas enregistrées. Fermer sans enregistrer ?",
+      )
+    )
+      return;
+    onClose();
   };
 
   const handleSendNote = (e) => {
@@ -449,6 +552,8 @@ export default function StepModal({
       transport_price_estimated: parseFloat(transportPriceEstimated) || 0,
       transport_price_paid: parseFloat(transportPricePaid) || 0,
     });
+    setLogisticsDirty(false);
+    setLogisticsSaved(true);
   };
 
   const handleFileUpload = (e) => {
@@ -486,9 +591,6 @@ export default function StepModal({
     await onUpdateStep(step.id, { checklist: updatedList });
   };
 
-  const inputClass =
-    "w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white dark:focus:border-blue-400";
-
   // Prix estimé / payé d'un bloc Hébergement ou Transport
   const renderPriceInputs = (estimated, setEstimated, paid, setPaid) => (
     <div className="mt-3 grid grid-cols-2 gap-3">
@@ -503,6 +605,7 @@ export default function StepModal({
           <div className="relative">
             <input
               type="number"
+              inputMode="decimal"
               min="0"
               step="0.01"
               value={field.value}
@@ -519,13 +622,15 @@ export default function StepModal({
     </div>
   );
 
-  return (
+  // Rendue directement dans <body> : sinon elle resterait prise dans la
+  // couche du contenu, sous la barre de navigation du téléphone.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end overflow-hidden bg-slate-900/60 backdrop-blur-sm transition-opacity">
       {/* PANNEAU LATÉRAL */}
-      <div className="bg-white dark:bg-slate-900 w-full md:max-w-3xl h-dvh shadow-2xl flex flex-col transform transition-transform duration-300 translate-x-0 overflow-hidden md:border-l border-slate-200 dark:border-slate-800">
+      <div className="safe-x bg-white dark:bg-slate-900 w-full md:max-w-3xl h-dvh shadow-2xl flex flex-col transform transition-transform duration-300 translate-x-0 overflow-hidden md:border-l border-slate-200 dark:border-slate-800">
         {/* HEADER STICKY */}
         <div className="shrink-0 border-b border-slate-100 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur z-20">
-          <div className="px-4 sm:px-6 py-4 sm:py-5">
+          <div className="px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 sm:pb-5 sm:pt-5">
             <div className="flex items-start justify-between">
               {isEditingHeader && !isReadOnly ? (
                 <div className="flex-1 mr-4 sm:mr-6 space-y-3">
@@ -550,6 +655,7 @@ export default function StepModal({
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <input
                       type="number"
+                      inputMode="numeric"
                       min="0"
                       value={editDuration}
                       onChange={(e) => setEditDuration(e.target.value)}
@@ -575,17 +681,25 @@ export default function StepModal({
                       />
                     </label>
                   )}
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex flex-wrap gap-2 pt-2">
                     <button
                       onClick={handleSaveHeader}
-                      className="bg-blue-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors flex-1 sm:flex-none">
+                      className="min-h-11 bg-blue-600 text-white px-5 rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors flex-1 sm:flex-none">
                       Enregistrer
                     </button>
                     <button
                       onClick={() => setIsEditingHeader(false)}
-                      className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 px-5 py-2 rounded-xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex-1 sm:flex-none">
+                      className="min-h-11 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 px-5 rounded-xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex-1 sm:flex-none">
                       Annuler
                     </button>
+                    {onDeleteStep && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteStep(step.id)}
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 sm:ml-auto sm:w-auto">
+                        <Trash2 size={16} /> Supprimer l’étape
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -605,14 +719,15 @@ export default function StepModal({
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                  <div className="flex items-center gap-1 sm:gap-3">
+                    <h2 className="min-w-0 text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
                       {step.city}
                     </h2>
                     {!isReadOnly && (
                       <button
                         onClick={() => setIsEditingHeader(true)}
-                        className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors p-2 rounded-xl"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors rounded-xl"
+                        aria-label="Modifier l'étape"
                         title="Éditer l'étape">
                         <Edit2 size={18} />
                       </button>
@@ -628,17 +743,19 @@ export default function StepModal({
               )}
 
               <button
-                onClick={onClose}
+                onClick={requestClose}
                 aria-label="Fermer"
                 title="Fermer"
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 p-2 sm:p-2.5 rounded-full transition-colors bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-700 shrink-0">
+                className="flex h-11 w-11 items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-700 shrink-0">
                 <X size={20} />
               </button>
             </div>
           </div>
 
           {/* ONGlets (TABS) */}
-          <div className="flex px-2 sm:px-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 overflow-x-auto hide-scrollbar shrink-0">
+          <div
+            role="tablist"
+            className="grid grid-cols-5 sm:px-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
             {[
               { id: "notes", icon: MessageSquare, label: "Notes" },
               { id: "checklist", icon: CheckSquare, label: "Checklist" },
@@ -648,13 +765,15 @@ export default function StepModal({
             ].map((tab) => (
               <button
                 key={tab.id}
+                role="tab"
+                aria-selected={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-3 sm:py-4 px-3 text-[11px] sm:text-[13px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 border-b-2 transition-all whitespace-nowrap ${
+                className={`min-h-14 px-0.5 text-[10px] sm:text-[13px] font-bold uppercase sm:tracking-wider flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 border-b-2 transition-all whitespace-nowrap ${
                   activeTab === tab.id
                     ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
                     : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                 }`}>
-                <tab.icon size={16} /> <span>{tab.label}</span>
+                <tab.icon size={18} /> <span>{tab.label}</span>
               </button>
             ))}
           </div>
@@ -696,7 +815,7 @@ export default function StepModal({
                         </span>
                         <button
                           onClick={() => setIsEditingUsername(true)}
-                          className="text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline self-end sm:self-auto">
+                          className="min-h-10 px-2 text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline self-end sm:self-auto">
                           Modifier
                         </button>
                       </>
@@ -776,20 +895,20 @@ export default function StepModal({
                             )}
 
                             {isMe && !isReadOnly && !isEditingThisNote && (
-                              <div className="absolute -left-16 top-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 rounded-lg p-1">
+                              <div className="mt-2 flex w-fit items-center gap-1 ml-auto sm:ml-0 sm:mt-0 sm:absolute sm:-left-24 sm:top-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 rounded-xl p-0.5">
                                 <button
                                   onClick={() => startEditingNote(note)}
                                   aria-label="Modifier la note"
                                   title="Modifier"
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 rounded-md">
-                                  <Edit2 size={14} />
+                                  className="flex h-10 w-10 items-center justify-center text-slate-400 hover:text-blue-600 rounded-lg">
+                                  <Edit2 size={16} />
                                 </button>
                                 <button
-                                  onClick={() => deleteNote(note.id)}
+                                  onClick={() => window.confirm("Supprimer cette note ?") && deleteNote(note.id)}
                                   aria-label="Supprimer la note"
                                   title="Supprimer"
-                                  className="p-1.5 text-slate-400 hover:text-red-500 rounded-md">
-                                  <Trash2 size={14} />
+                                  className="flex h-10 w-10 items-center justify-center text-slate-400 hover:text-red-500 rounded-lg">
+                                  <Trash2 size={16} />
                                 </button>
                               </div>
                             )}
@@ -813,12 +932,13 @@ export default function StepModal({
                         onKeyDown={handleNoteComposerKeyDown}
                         disabled={isEditingUsername}
                         rows={1}
-                        className="flex-1 bg-transparent resize-none px-3 sm:px-4 py-2 outline-none text-[15px] dark:text-white placeholder:text-slate-400 self-center max-h-32"
+                        className="flex-1 bg-transparent resize-none px-3 sm:px-4 py-2 outline-none text-base sm:text-[15px] dark:text-white placeholder:text-slate-400 self-center max-h-32"
                       />
                       <button
                         type="submit"
                         disabled={isEditingUsername || !newNote.trim()}
-                        className="w-10 h-10 shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 transition-colors self-end">
+                        aria-label="Envoyer la note"
+                        className="w-11 h-11 shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 transition-colors self-end">
                         <Send size={18} className="ml-1" />
                       </button>
                     </div>
@@ -863,7 +983,7 @@ export default function StepModal({
                                   checklist: updatedList,
                                 });
                               }}
-                              className="bg-white dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shadow-sm disabled:opacity-50">
+                              className="min-h-10 bg-white dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 px-3 py-1.5 rounded-xl text-left text-xs font-bold transition-colors shadow-sm disabled:opacity-50">
                               + {suggestion}
                             </button>
                           );
@@ -887,7 +1007,7 @@ export default function StepModal({
                     <button
                       type="submit"
                       disabled={!newChecklistItem.trim()}
-                      className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3 sm:py-2.5 rounded-xl font-bold text-sm hover:bg-slate-800 dark:hover:bg-slate-200 disabled:opacity-50 transition-colors shadow-sm w-full sm:w-auto">
+                      className="min-h-11 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 rounded-xl font-bold text-sm hover:bg-slate-800 dark:hover:bg-slate-200 disabled:opacity-50 transition-colors shadow-sm w-full sm:w-auto">
                       Ajouter
                     </button>
                   </form>
@@ -924,7 +1044,7 @@ export default function StepModal({
                             onClick={() => deleteChecklistItem(item.id)}
                             aria-label={`Supprimer "${item.text}"`}
                             title="Supprimer"
-                            className="text-slate-300 hover:text-red-500 p-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 ml-2 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                            className="flex h-11 w-11 shrink-0 items-center justify-center text-slate-300 hover:text-red-500 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 ml-1 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                             <Trash2 size={18} />
                           </button>
                         )}
@@ -937,241 +1057,320 @@ export default function StepModal({
 
             {/* ONGLET 3 : ACTIVITÉS */}
             {activeTab === "activities" && (
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-4 sm:p-6 pb-12">
-                {!isReadOnly && (
-                  <div className="rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 sm:p-6 shadow-sm mb-6 sm:mb-8">
-                    <div className="mb-4 sm:mb-5 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      <PlusCircle size={18} className="text-blue-500" /> Ajouter
-                      une activité
-                    </div>
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-4 sm:p-6 pb-12">
+                  {!isReadOnly && (
+                    <div className="rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 sm:p-6 shadow-sm mb-6">
+                      <div className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <PlusCircle size={18} className="text-blue-500" /> Ajouter
+                        une activité
+                      </div>
 
-                    <div className="space-y-4">
-                      <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+                      <div className="space-y-3">
                         <input
                           type="text"
                           value={newActivityTitle}
                           onChange={(e) => setNewActivityTitle(e.target.value)}
                           placeholder="Intitulé (ex. Plongée)"
+                          aria-label="Intitulé de l'activité"
                           className={inputClass}
                         />
-                        <input
-                          type="text"
-                          value={newActivityPlace}
-                          onChange={(e) => setNewActivityPlace(e.target.value)}
-                          placeholder="Lieu exact (pour la carte)"
-                          className={inputClass}
-                        />
-                      </div>
 
-                      <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
-                        <div className="flex items-center gap-2 sm:gap-3 border border-slate-200 dark:border-slate-700 rounded-xl px-3 sm:px-4 bg-slate-50 dark:bg-slate-900/50 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
-                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider w-14 sm:w-16">
-                            Estimé
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={newActivityEstimatedPrice}
-                            onChange={(e) =>
-                              setNewActivityEstimatedPrice(e.target.value)
-                            }
-                            placeholder="0"
-                            className="w-full bg-transparent py-2.5 sm:py-3 text-right font-mono outline-none text-slate-900 dark:text-white"
-                          />
-                          <span className="text-slate-400 font-bold">€</span>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="flex items-center gap-2 border border-slate-200 dark:border-slate-700 rounded-xl px-3 bg-slate-50 dark:bg-slate-900/50 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                              Estimé
+                            </span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              value={newActivityEstimatedPrice}
+                              onChange={(e) =>
+                                setNewActivityEstimatedPrice(e.target.value)
+                              }
+                              placeholder="0"
+                              className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-slate-900 dark:text-white"
+                            />
+                            <span className="text-slate-400 font-bold">€</span>
+                          </label>
+                          <label className="flex items-center gap-2 border border-emerald-200 dark:border-emerald-800/50 rounded-xl px-3 bg-emerald-50/50 dark:bg-emerald-900/20 focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all">
+                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-500 uppercase tracking-wider">
+                              Payé
+                            </span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              value={newActivityPaidPrice}
+                              onChange={(e) =>
+                                setNewActivityPaidPrice(e.target.value)
+                              }
+                              placeholder="0"
+                              className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-emerald-700 dark:text-emerald-400 font-bold"
+                            />
+                            <span className="text-emerald-500 font-bold">€</span>
+                          </label>
                         </div>
-                        <div className="flex items-center gap-2 sm:gap-3 border border-emerald-200 dark:border-emerald-800/50 rounded-xl px-3 sm:px-4 bg-emerald-50/50 dark:bg-emerald-900/20 focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all">
-                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-500 uppercase tracking-wider w-14 sm:w-16">
-                            Payé
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={newActivityPaidPrice}
-                            onChange={(e) =>
-                              setNewActivityPaidPrice(e.target.value)
-                            }
-                            placeholder="0"
-                            className="w-full bg-transparent py-2.5 sm:py-3 text-right font-mono outline-none text-emerald-700 dark:text-emerald-400 font-bold"
-                          />
-                          <span className="text-emerald-500 font-bold">€</span>
-                        </div>
-                      </div>
 
-                      <textarea
-                        value={newActivityNotes}
-                        onChange={(e) => setNewActivityNotes(e.target.value)}
-                        placeholder="Notes, liens de réservation, horaires..."
-                        rows="3"
-                        className={`${inputClass} min-h-20 resize-y`}
-                      />
+                        {showNewActivityDetails ? (
+                          <>
+                            <input
+                              type="text"
+                              value={newActivityPlace}
+                              onChange={(e) =>
+                                setNewActivityPlace(e.target.value)
+                              }
+                              placeholder="Lieu exact (pour la carte)"
+                              aria-label="Lieu de l'activité"
+                              className={inputClass}
+                            />
+                            <textarea
+                              value={newActivityNotes}
+                              onChange={(e) =>
+                                setNewActivityNotes(e.target.value)
+                              }
+                              placeholder="Notes, liens de réservation, horaires..."
+                              aria-label="Notes de l'activité"
+                              rows="3"
+                              className={`${inputClass} min-h-20 resize-y`}
+                            />
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowNewActivityDetails(true)}
+                            className="min-h-10 text-sm font-bold text-blue-600 dark:text-blue-400">
+                            + Lieu et notes
+                          </button>
+                        )}
 
-                      <div className="flex justify-end pt-2">
                         <button
                           type="button"
-                          onClick={addActivityDraft}
-                          disabled={!newActivityTitle.trim()}
-                          className="bg-slate-900 dark:bg-blue-600 text-white px-6 sm:px-8 py-3 rounded-xl font-bold text-sm hover:bg-slate-800 dark:hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm w-full sm:w-auto">
-                          Ajouter à la liste
+                          onClick={addActivity}
+                          disabled={!newActivityTitle.trim() || savingActivities}
+                          className="min-h-12 w-full bg-slate-900 dark:bg-blue-600 text-white px-6 rounded-xl font-bold text-sm hover:bg-slate-800 dark:hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm sm:w-auto">
+                          {savingActivities ? "Enregistrement..." : "Ajouter"}
                         </button>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                <div className="space-y-4 sm:space-y-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-                    <h3 className="font-black text-slate-900 dark:text-white text-lg sm:text-xl">
-                      Programme prévu
-                    </h3>
-                    {/* Reste visible quand on vient de supprimer la dernière
-                        activité, pour pouvoir enregistrer la liste vide. */}
-                    {!isReadOnly && (activities.length > 0 || (step.activities || []).length > 0) && (
-                      <button
-                        onClick={handleSaveActivities}
-                        disabled={savingActivities}
-                        className="bg-blue-600 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-2">
-                        <Save size={16} />{" "}
-                        {savingActivities
-                          ? "Enregistrement..."
-                          : "Sauvegarder modifications"}
-                      </button>
-                    )}
-                  </div>
-
-                  {activities.length === 0 ? (
-                    <div className="rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-8 sm:p-10 text-center text-slate-500">
-                      Aucune activité programmée.
+                  <div className="space-y-3">
+                    <div className="mb-1 flex items-baseline justify-between gap-3">
+                      <h3 className="font-black text-slate-900 dark:text-white text-lg sm:text-xl">
+                        Programme prévu
+                      </h3>
+                      {activities.length > 0 && (
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                          {formatEuros(
+                            activities.reduce(
+                              (acc, activity) =>
+                                acc + (Number.parseFloat(activity.price) || 0),
+                              0,
+                            ),
+                          )}{" "}
+                          payés
+                        </span>
+                      )}
                     </div>
-                  ) : (
-                    activities.map((activity) => (
-                      <div
-                        key={activity.id}
-                        className="rounded-3xl sm:rounded-[28px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 sm:p-6 shadow-sm relative group">
-                        <div className="space-y-4 pr-0 sm:pr-10">
-                          <div className="flex items-start justify-between gap-2">
-                            <input
-                              type="text"
-                              value={activity.title || ""}
-                              onChange={(e) =>
-                                updateActivityField(
-                                  activity.id,
-                                  "title",
-                                  e.target.value,
-                                )
+
+                    {activities.length === 0 ? (
+                      <div className="rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-8 sm:p-10 text-center text-slate-500">
+                        Aucune activité programmée.
+                      </div>
+                    ) : (
+                      activities.map((activity) => {
+                        const isOpen = expandedActivityId === activity.id;
+                        const paid = Number.parseFloat(activity.price) || 0;
+                        const estimated =
+                          Number.parseFloat(
+                            activity.estimatedPrice ?? activity.price,
+                          ) || 0;
+                        return (
+                          <div
+                            key={activity.id}
+                            className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+                            {/* Ligne repliée : l'essentiel, un appui pour modifier */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedActivityId(isOpen ? null : activity.id)
                               }
-                              className="w-full bg-transparent text-lg sm:text-xl font-black text-slate-900 dark:text-white placeholder:text-slate-300 outline-none border-b-2 border-transparent focus:border-blue-500 transition-colors pb-1"
-                              placeholder="Nom de l'activité"
-                              readOnly={isReadOnly}
-                            />
-                            {!isReadOnly && (
-                              <button
-                                type="button"
-                                onClick={() => deleteActivity(activity.id)}
-                                aria-label="Supprimer l'activité"
-                                title="Supprimer"
-                                className="p-2 sm:absolute sm:top-5 sm:right-5 rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0">
-                                <Trash2 size={18} />
-                              </button>
+                              aria-expanded={isOpen}
+                              className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left">
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-bold text-slate-900 dark:text-white">
+                                  {activity.title || "Activité sans titre"}
+                                </span>
+                                {(activity.place || activity.notes) && (
+                                  <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                                    {activity.place || activity.notes}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="shrink-0 text-right">
+                                <span
+                                  className={`block text-sm font-black ${paid > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400"}`}>
+                                  {formatEuros(paid)}
+                                </span>
+                                <span className="block text-[11px] font-medium text-slate-400">
+                                  prévu {formatEuros(estimated)}
+                                </span>
+                              </span>
+                              <ChevronDown
+                                size={18}
+                                className={`shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                              />
+                            </button>
+
+                            {isOpen && (
+                              <div className="space-y-3 border-t border-slate-100 dark:border-slate-700 px-4 py-4">
+                                <input
+                                  type="text"
+                                  value={activity.title || ""}
+                                  onChange={(e) =>
+                                    updateActivityField(
+                                      activity.id,
+                                      "title",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className={`${inputClass} font-bold`}
+                                  placeholder="Nom de l'activité"
+                                  aria-label="Nom de l'activité"
+                                  readOnly={isReadOnly}
+                                />
+
+                                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/50 px-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                                  <MapPin
+                                    size={18}
+                                    className="text-slate-400 shrink-0"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={activity.place || ""}
+                                    onChange={(e) =>
+                                      updateActivityField(
+                                        activity.id,
+                                        "place",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full min-w-0 bg-transparent py-2.5 text-base sm:text-sm outline-none text-slate-700 dark:text-slate-300"
+                                    placeholder="Lieu (pour la carte)"
+                                    aria-label="Lieu de l'activité"
+                                    readOnly={isReadOnly}
+                                  />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                  <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 rounded-xl border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                                      Estimé
+                                    </span>
+                                    <input
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="0"
+                                      step="0.01"
+                                      value={
+                                        activity.estimatedPrice ??
+                                        activity.price ??
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        updateActivityField(
+                                          activity.id,
+                                          "estimatedPrice",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-slate-900 dark:text-white"
+                                      placeholder="0"
+                                      readOnly={isReadOnly}
+                                    />
+                                    <span className="text-slate-400 font-bold">
+                                      €
+                                    </span>
+                                  </label>
+                                  <label className="flex items-center gap-2 bg-emerald-50/50 dark:bg-emerald-900/20 px-3 rounded-xl border border-emerald-100 dark:border-emerald-800/50 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10 transition-all">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500">
+                                      Payé
+                                    </span>
+                                    <input
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="0"
+                                      step="0.01"
+                                      value={activity.price ?? ""}
+                                      onChange={(e) =>
+                                        updateActivityField(
+                                          activity.id,
+                                          "price",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-emerald-700 dark:text-emerald-400 font-bold"
+                                      placeholder="0"
+                                      readOnly={isReadOnly}
+                                    />
+                                    <span className="text-emerald-500 font-bold">
+                                      €
+                                    </span>
+                                  </label>
+                                </div>
+
+                                <textarea
+                                  value={activity.notes || ""}
+                                  onChange={(e) =>
+                                    updateActivityField(
+                                      activity.id,
+                                      "notes",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className={`${inputClass} min-h-24 resize-y`}
+                                  placeholder="Notes, récit, détails pratiques..."
+                                  aria-label="Notes de l'activité"
+                                  readOnly={isReadOnly}
+                                />
+
+                                {!isReadOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteActivity(activity.id)}
+                                    disabled={savingActivities}
+                                    className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-bold text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">
+                                    <Trash2 size={16} /> Supprimer l’activité
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
-
-                          <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                            <MapPin
-                              size={18}
-                              className="text-slate-400 shrink-0"
-                            />
-                            <input
-                              type="text"
-                              value={activity.place || ""}
-                              onChange={(e) =>
-                                updateActivityField(
-                                  activity.id,
-                                  "place",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full bg-transparent text-sm outline-none text-slate-700 dark:text-slate-300"
-                              placeholder="Lieu à géocoder pour la carte"
-                              readOnly={isReadOnly}
-                            />
-                          </div>
-
-                          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2">
-                            <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/50 p-2 sm:p-3 rounded-xl border border-slate-100 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
-                              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 w-16 sm:w-auto">
-                                Estimé
-                              </span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={
-                                  activity.estimatedPrice ??
-                                  activity.price ??
-                                  ""
-                                }
-                                onChange={(e) =>
-                                  updateActivityField(
-                                    activity.id,
-                                    "estimatedPrice",
-                                    e.target.value,
-                                  )
-                                }
-                                className="flex-1 w-full bg-transparent text-right font-mono outline-none text-slate-900 dark:text-white"
-                                placeholder="0"
-                                readOnly={isReadOnly}
-                              />
-                              <span className="text-slate-400 font-bold">
-                                €
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 bg-emerald-50/50 dark:bg-emerald-900/20 p-2 sm:p-3 rounded-xl border border-emerald-100 dark:border-emerald-800/50 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10 transition-all">
-                              <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500 w-16 sm:w-auto">
-                                Payé
-                              </span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={activity.price ?? ""}
-                                onChange={(e) =>
-                                  updateActivityField(
-                                    activity.id,
-                                    "price",
-                                    e.target.value,
-                                  )
-                                }
-                                className="flex-1 w-full bg-transparent text-right font-mono outline-none text-emerald-700 dark:text-emerald-400 font-bold"
-                                placeholder="0"
-                                readOnly={isReadOnly}
-                              />
-                              <span className="text-emerald-500 font-bold">
-                                €
-                              </span>
-                            </div>
-                          </div>
-
-                          <textarea
-                            value={activity.notes || ""}
-                            onChange={(e) =>
-                              updateActivityField(
-                                activity.id,
-                                "notes",
-                                e.target.value,
-                              )
-                            }
-                            className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-xl p-4 text-sm text-slate-700 dark:text-slate-300 outline-none resize-y focus:border-blue-500 transition-colors min-h-30"
-                            placeholder="Notes, récit, détails pratiques..."
-                            readOnly={isReadOnly}
-                          />
-                        </div>
-                      </div>
-                    ))
-                  )}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
+
+                {/* Barre d'enregistrement : visible dès qu'une activité est modifiée */}
+                {!isReadOnly && activitiesDirty && (
+                  <div className="shrink-0 border-t border-slate-200 bg-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 dark:border-slate-700 dark:bg-slate-800">
+                    <button
+                      type="button"
+                      onClick={handleSaveActivities}
+                      disabled={savingActivities}
+                      className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60">
+                      <Save size={18} />
+                      {savingActivities
+                        ? "Enregistrement..."
+                        : "Enregistrer les modifications"}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1179,22 +1378,25 @@ export default function StepModal({
             {activeTab === "logistics" && (
               <form
                 onSubmit={handleSaveLogistics}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-4 sm:p-6 pb-12 flex flex-col">
-                <div className="bg-linear-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-4 sm:p-5 rounded-3xl border border-blue-100 dark:border-blue-800/50 mb-6 sm:mb-8 shadow-sm shrink-0">
-                  <div className="flex items-center justify-between mb-4">
+                className="flex min-h-0 flex-1 flex-col">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-4 sm:p-6 pb-12 flex flex-col">
+                <div className="bg-linear-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-3 sm:p-5 rounded-3xl border border-blue-100 dark:border-blue-800/50 mb-4 sm:mb-8 shadow-sm shrink-0">
+                  <div className="flex items-center justify-between mb-2 sm:mb-4">
                     <label className="text-sm font-black text-blue-900 dark:text-blue-400 flex items-center gap-2 uppercase tracking-wider">
                       <Calculator size={16} /> Convertisseur
                     </label>
                     <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-2 py-1 rounded-full text-slate-500 shadow-sm hidden sm:inline-block">
-                      Taux en temps réel
+                      Taux du jour
                     </span>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-3 items-center">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                     <div className="flex flex-1 w-full bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700">
                       <input
                         type="number"
+                        inputMode="decimal"
                         min="0"
                         placeholder="Montant..."
+                        aria-label="Montant en monnaie locale"
                         value={localAmount}
                         onChange={(e) => setLocalAmount(e.target.value)}
                         className="flex-1 w-1/2 sm:w-auto bg-transparent px-3 sm:px-4 py-3 text-lg font-black text-slate-900 dark:text-white outline-none"
@@ -1202,28 +1404,29 @@ export default function StepModal({
                       <select
                         value={localCurrency}
                         onChange={(e) => setLocalCurrency(e.target.value)}
-                        className="bg-slate-50 dark:bg-slate-900 px-2 sm:px-4 py-3 text-sm font-bold text-slate-600 dark:text-slate-300 border-l border-slate-200 dark:border-slate-700 outline-none cursor-pointer">
-                        <option value="THB">THB</option>
-                        <option value="VND">VND</option>
-                        <option value="IDR">IDR</option>
-                        <option value="JPY">JPY</option>
-                        <option value="USD">USD</option>
-                        <option value="MYR">MYR</option>
-                        <option value="SGD">SGD</option>
+                        aria-label="Devise"
+                        className="bg-slate-50 dark:bg-slate-900 px-2 sm:px-4 py-3 text-base sm:text-sm font-bold text-slate-600 dark:text-slate-300 border-l border-slate-200 dark:border-slate-700 outline-none cursor-pointer">
+                        {CURRENCIES.filter((code) => code !== "EUR").map(
+                          (code) => (
+                            <option key={code} value={code}>
+                              {code}
+                            </option>
+                          ),
+                        )}
                       </select>
                     </div>
-                    <div className="text-slate-400">
-                      <ArrowLeft className="rotate-90 sm:rotate-0" size={20} />
+                    <div className="hidden text-slate-400 sm:block">
+                      <ArrowLeft size={20} />
                     </div>
-                    <div className="flex-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 shadow-sm flex items-center justify-between">
-                      <span className="text-sm font-bold text-slate-400">
-                        Euros
+                    <div className="flex-1 w-full sm:bg-white sm:dark:bg-slate-800 sm:border border-slate-200 dark:border-slate-700 rounded-xl px-1 sm:px-4 sm:py-3 sm:shadow-sm flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-500 dark:text-slate-400">
+                        = en euros
                       </span>
                       <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
                         {!exchangeRates ? (
                           <Loader2 size={20} className="animate-spin" />
                         ) : (
-                          `${convertedAmount} €`
+                          formatEuros(convertedAmount)
                         )}
                       </span>
                     </div>
@@ -1296,10 +1499,11 @@ export default function StepModal({
                           type="number"
                           min="0"
                           step="0.01"
+                          inputMode="decimal"
                           value={budget}
                           onChange={(e) => setBudget(e.target.value)}
                           disabled={isReadOnly}
-                          className="w-full bg-transparent text-2xl sm:text-3xl font-black text-slate-900 dark:text-white outline-none border-b-2 border-transparent focus:border-blue-500 transition-colors"
+                          className="min-h-11 w-full bg-transparent text-2xl sm:text-3xl font-black text-slate-900 dark:text-white outline-none border-b-2 border-transparent focus:border-blue-500 transition-colors"
                         />
                         <span className="text-xl font-black text-slate-400">
                           €
@@ -1315,10 +1519,11 @@ export default function StepModal({
                           type="number"
                           min="0"
                           step="0.01"
+                          inputMode="decimal"
                           value={budgetSpent}
                           onChange={(e) => setBudgetSpent(e.target.value)}
                           disabled={isReadOnly}
-                          className="w-full bg-transparent text-2xl sm:text-3xl font-black text-emerald-700 dark:text-emerald-400 outline-none border-b-2 border-transparent focus:border-emerald-500 transition-colors"
+                          className="min-h-11 w-full bg-transparent text-2xl sm:text-3xl font-black text-emerald-700 dark:text-emerald-400 outline-none border-b-2 border-transparent focus:border-emerald-500 transition-colors"
                         />
                         <span className="text-xl font-black text-emerald-500/50">
                           €
@@ -1328,12 +1533,31 @@ export default function StepModal({
                   </div>
                 </div>
 
+                </div>
+
+                {/* Pied fixe : le bouton reste sous le pouce, sans avoir à
+                    faire défiler toute la fiche pour enregistrer. */}
                 {!isReadOnly && (
-                  <div className="pt-4 mt-6 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
+                  <div className="flex shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 dark:border-slate-700 dark:bg-slate-800 sm:justify-end sm:px-6">
+                    {logisticsDirty && (
+                      <span className="hidden text-xs font-bold text-amber-600 dark:text-amber-400 sm:inline">
+                        Modifications non enregistrées
+                      </span>
+                    )}
                     <button
                       type="submit"
-                      className="bg-sky-600 text-white w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-sm hover:bg-sky-700 transition-colors shadow-lg flex items-center justify-center gap-2">
-                      <Save size={18} /> Sauvegarder
+                      disabled={!logisticsDirty}
+                      className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-8 text-sm font-bold transition-colors sm:w-auto ${logisticsDirty ? "bg-sky-600 text-white shadow-lg hover:bg-sky-700" : logisticsSaved ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-400"}`}>
+                      {logisticsSaved && !logisticsDirty ? (
+                        <>
+                          <Check size={18} /> Enregistré
+                        </>
+                      ) : (
+                        <>
+                          <Save size={18} />{" "}
+                          {logisticsDirty ? "Enregistrer" : "Rien à enregistrer"}
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -1446,6 +1670,7 @@ export default function StepModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

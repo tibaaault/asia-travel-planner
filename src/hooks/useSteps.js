@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "../config/supabaseClient";
 
 const DEFAULT_TRIP_START_DATE = "2026-10-01";
@@ -15,6 +15,13 @@ const withTimeout = (promise, ms = NETWORK_TIMEOUT_MS) =>
       setTimeout(() => reject(new Error("Délai réseau dépassé")), ms),
     ),
   ]);
+
+// Au retour sur l'app après une absence au moins aussi longue, on recharge
+// les étapes : une PWA reste ouverte des heures en arrière-plan.
+const REFRESH_AFTER_HIDDEN_MS = 60 * 1000;
+
+const hasPendingMutations = () =>
+  JSON.parse(localStorage.getItem("offline_mutations") || "[]").length > 0;
 
 export function useSteps() {
   const [steps, setSteps] = useState([]);
@@ -72,7 +79,7 @@ export function useSteps() {
     }
 
     localStorage.removeItem("offline_mutations");
-    fetchSteps();
+    fetchSteps({ silent: true });
   };
 
   useEffect(() => {
@@ -81,8 +88,10 @@ export function useSteps() {
   }, []);
 
   // --- 1. LECTURE DES ÉTAPES ---
-  const fetchSteps = async () => {
-    setLoading(true);
+  // `silent` : recharge sans afficher le spinner plein écran, qui
+  // démonterait la fiche d'étape ouverte et ses modifications en cours.
+  const fetchSteps = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       if (!navigator.onLine) throw new Error("Navigateur hors-ligne");
 
@@ -139,12 +148,40 @@ export function useSteps() {
       if (cachedTripId) setCurrentTripId(cachedTripId);
       if (cachedTripStart) setTripStartDate(cachedTripStart);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchSteps();
+  }, []);
+
+  // --- RAFRAÎCHISSEMENT AU RETOUR SUR L'APP ---
+  // Sans ça, on continue à lire (et à réenregistrer) des données vieilles
+  // de plusieurs heures. On s'abstient s'il reste des modifications hors
+  // ligne en attente : elles seraient masquées par la copie du serveur.
+  const hiddenAtRef = useRef(null);
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenFor = hiddenAtRef.current
+        ? Date.now() - hiddenAtRef.current
+        : 0;
+      hiddenAtRef.current = null;
+      if (
+        hiddenFor >= REFRESH_AFTER_HIDDEN_MS &&
+        navigator.onLine &&
+        !hasPendingMutations()
+      ) {
+        fetchSteps({ silent: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
 
   // --- 2. AJOUTER UNE ÉTAPE ---
@@ -315,6 +352,41 @@ export function useSteps() {
     }
   };
 
+  // --- 5 bis. AJOUTER UNE ACTIVITÉ (SAISIE RAPIDE) ---
+  // Les activités d'une étape sont enregistrées en bloc : ajouter à partir
+  // d'une copie locale périmée effacerait ce qu'un autre téléphone vient
+  // d'ajouter. On relit donc la liste du serveur juste avant, quand c'est
+  // possible ; sinon on part de la copie locale.
+  const appendActivity = async (stepId, activity) => {
+    const localStep = steps.find((step) => step.id === stepId);
+    if (!localStep) return;
+
+    let baseActivities = localStep.activities || [];
+    if (
+      navigator.onLine &&
+      !hasPendingMutations() &&
+      !String(stepId).startsWith("temp-")
+    ) {
+      try {
+        const { data, error } = await withTimeout(
+          supabase
+            .from("steps")
+            .select("activities")
+            .eq("id", stepId)
+            .maybeSingle(),
+          3000,
+        );
+        if (!error && Array.isArray(data?.activities)) {
+          baseActivities = data.activities;
+        }
+      } catch (err) {
+        console.error("Relecture des activités impossible, copie locale utilisée:", err);
+      }
+    }
+
+    await updateStep(stepId, { activities: [...baseActivities, activity] });
+  };
+
   // --- 6. METTRE À JOUR LA DATE DE DÉBUT DU VOYAGE ---
   const updateTripStartDate = async (newStartDate) => {
     if (!newStartDate) return;
@@ -358,5 +430,6 @@ export function useSteps() {
     deleteStep,
     updateStepsOrder,
     updateStep,
+    appendActivity,
   };
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -10,10 +10,12 @@ import {
   Trash2,
   Wallet,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Plus,
 } from "lucide-react";
 import { supabase } from "../config/supabaseClient";
-import { useSteps } from "../hooks/useSteps";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import { formatEuros } from "../utils/currency";
 import TripSummary from "./TripSummary";
 import {
   getActivityEstimatedPrice,
@@ -56,7 +58,7 @@ const initialFormState = {
 // ==========================================
 // COMPOSANTS CELLULES ÉDITABLES (FAÇON EXCEL)
 // ==========================================
-const EditableCurrency = ({ value, onSave, readonly }) => {
+const EditableCurrency = ({ value, onSave, readonly, label }) => {
   const [val, setVal] = useState(value);
   useEffect(() => setVal(value), [value]);
 
@@ -64,19 +66,21 @@ const EditableCurrency = ({ value, onSave, readonly }) => {
     if (Number(val) !== Number(value)) onSave(Number(val));
   };
 
-  if (readonly) return <span>{Number(value).toLocaleString("fr-FR")} €</span>;
+  if (readonly) return <span className="font-bold text-slate-900 dark:text-white">{Number(value).toLocaleString("fr-FR")} €</span>;
 
   return (
     <div className="flex items-center justify-end gap-1 group">
       <input
         type="number"
+        inputMode="decimal"
         min="0"
         step="0.01"
         value={val}
         onChange={e => setVal(e.target.value)}
         onBlur={handleBlur}
         onKeyDown={e => e.key === 'Enter' && e.target.blur()}
-        className="w-20 bg-transparent text-right outline-none font-black text-slate-900 dark:text-white border-b border-transparent group-hover:border-slate-300 focus:border-sky-500 transition-colors"
+        aria-label={label}
+        className="w-20 bg-transparent py-1 text-right text-base outline-none font-black text-slate-900 dark:text-white border-b border-transparent group-hover:border-slate-300 focus:border-sky-500 transition-colors md:py-0 md:text-sm"
       />
       <span className="text-slate-400 font-bold">€</span>
     </div>
@@ -100,7 +104,8 @@ const EditableText = ({ value, onSave, readonly }) => {
       onChange={e => setVal(e.target.value)}
       onBlur={handleBlur}
       onKeyDown={e => e.key === 'Enter' && e.target.blur()}
-      className="w-full bg-transparent outline-none font-bold text-slate-900 dark:text-white border-b border-transparent hover:border-slate-300 focus:border-sky-500 transition-colors"
+      aria-label="Intitulé"
+      className="w-full bg-transparent py-1.5 text-base outline-none font-bold text-slate-900 dark:text-white border-b border-transparent hover:border-slate-300 focus:border-sky-500 transition-colors md:py-0 md:text-sm"
     />
   );
 };
@@ -120,7 +125,8 @@ const EditableSelect = ({ value, options, onSave, readonly }) => {
     <select
       value={value}
       onChange={(e) => onSave(e.target.value)}
-      className="bg-transparent text-[11px] font-bold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-300 outline-none border-b border-transparent hover:border-slate-300 focus:border-sky-500 cursor-pointer"
+      aria-label="Statut du paiement"
+      className="bg-transparent text-base font-bold text-slate-700 dark:text-slate-300 outline-none border-b border-transparent hover:border-slate-300 focus:border-sky-500 cursor-pointer md:text-[11px] md:uppercase md:tracking-[0.14em]"
     >
       {Object.entries(options).map(([key, meta]) => (
         <option key={key} value={key}>{meta.label}</option>
@@ -129,12 +135,35 @@ const EditableSelect = ({ value, options, onSave, readonly }) => {
   );
 };
 
+const SOURCE_BADGE = {
+  "Étape mère": "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300",
+  Activité: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300",
+  Hébergement: "bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300",
+  Transport: "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
+  Préparation: "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
+};
+
+// Chiffres clés arrondis à l'euro : ils doivent tenir à trois sur un téléphone.
+const formatWholeEuros = (value) =>
+  `${Math.round(Number(value) || 0).toLocaleString("fr-FR")} €`;
+
 // ==========================================
 // PAGE PRINCIPALE
 // ==========================================
-export default function PreparationPage({ session, onBackToItinerary }) {
+export default function PreparationPage({
+  session,
+  trip,
+  progress,
+  onBackToItinerary,
+  onQuickAdd,
+}) {
   const isReadOnly = !session;
-  const { steps, currentTripId, updateStep } = useSteps();
+  const { steps, currentTripId, updateStep } = trip;
+  // Tableau sur grand écran, liste de cartes sur téléphone (un tableau de
+  // 800 px de large y cache les montants hors de l'écran).
+  const isTable = useMediaQuery("(min-width: 768px)");
+  const currentStepId =
+    progress?.status === "ongoing" ? progress.current.id : null;
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(initialFormState);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -398,6 +427,20 @@ export default function PreparationPage({ session, onBackToItinerary }) {
     return { segments, generalGroup };
   }, [groupedRows, steps]);
 
+  // À la première ouverture, le voyage et l'étape en cours sont dépliés :
+  // c'est là qu'on vient saisir ou vérifier une dépense.
+  const hasExpandedCurrentRef = useRef(false);
+  useEffect(() => {
+    if (hasExpandedCurrentRef.current || !currentStepId) return;
+    const currentSegment = segmentedGroups.segments.find((segment) =>
+      segment.stepIds.includes(currentStepId),
+    );
+    if (!currentSegment) return;
+    hasExpandedCurrentRef.current = true;
+    setExpandedSegments(new Set([currentSegment.id]));
+    setExpandedGroups(new Set([currentStepId]));
+  }, [segmentedGroups, currentStepId]);
+
   const toggleSegment = (segmentId) => {
     const next = new Set(expandedSegments);
     if (next.has(segmentId)) next.delete(segmentId);
@@ -459,7 +502,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
             <tr key={row.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors group/row ${isPending ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
               <td className="px-4 border-l-2 border-slate-200 dark:border-slate-700"></td>
               <td className="px-4 py-3 align-middle">
-                <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.source === "Étape mère" ? "bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300" : row.source === "Activité" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : row.source === "Hébergement" ? "bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300" : row.source === "Transport" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300" : "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300"}`}>
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${SOURCE_BADGE[row.source] || SOURCE_BADGE.Préparation}`}>
                   {row.source}
                 </span>
               </td>
@@ -643,15 +686,198 @@ export default function PreparationPage({ session, onBackToItinerary }) {
     if (currentTripId) supabase.from("preparation_items").delete().eq("trip_id", currentTripId).then(() => {});
   };
 
+  // ==========================================
+  // VERSION TÉLÉPHONE DU TABLEAU : cartes empilées
+  // ==========================================
+  const renderMobileRow = (row) => {
+    const isPending = row.estimated > 0 && row.paid === 0;
+    const titleReadonly =
+      isReadOnly || row.rowType === "step" || row.rowType === "lodging" || row.rowType === "transport";
+
+    return (
+      <div key={row.id} className={`px-3 py-3 ${isPending ? "bg-amber-50/40 dark:bg-amber-900/10" : ""}`}>
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <EditableText
+              value={row.rowType === "step" ? "Autres frais de l’étape" : row.label}
+              onSave={(val) => handleInlineEdit(row, "title", val)}
+              readonly={titleReadonly}
+            />
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${SOURCE_BADGE[row.source] || SOURCE_BADGE.Préparation}`}>
+                {row.rowType === "step" ? "Étape" : row.source}
+              </span>
+              {row.rowType !== "step" && row.reference && row.reference !== "Lieu" && (
+                <span className="truncate text-[11px] text-slate-400">{row.reference}</span>
+              )}
+            </div>
+          </div>
+          {row.rowType === "preparation" && (
+            <div className="flex shrink-0 items-center gap-1">
+              <EditableSelect
+                value={row.payment}
+                options={PAYMENT_META}
+                onSave={(val) => handleInlineEdit(row, "payment", val)}
+                readonly={isReadOnly}
+              />
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={() => window.confirm(`Supprimer « ${row.label} » ?`) && deleteItem(row.itemId)}
+                  aria-label={`Supprimer ${row.label}`}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20">
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <label className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 dark:bg-slate-900/60">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Estimé</span>
+            <EditableCurrency
+              value={row.estimated}
+              label={`Estimé, ${row.label}`}
+              onSave={(val) => handleInlineEdit(row, "estimated", val)}
+              readonly={isReadOnly}
+            />
+          </label>
+          <label className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-emerald-50/70 px-3 dark:bg-emerald-900/20">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Payé</span>
+            <EditableCurrency
+              value={row.paid}
+              label={`Payé, ${row.label}`}
+              onSave={(val) => handleInlineEdit(row, "paid", val)}
+              readonly={isReadOnly || row.rowType === "preparation"}
+            />
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMobileGroup = (group) => {
+    const isExpanded = expandedGroups.has(group.id);
+    // La ligne "étape" ne porte que les autres frais : inutile de l'afficher
+    // quand elle est vide (elle se remplit depuis la fiche de l'étape).
+    const rows = [group.parentRow, ...group.children].filter(
+      (row) => row && !(row.rowType === "step" && row.estimated === 0 && row.paid === 0),
+    );
+    const isCurrent = group.id === currentStepId;
+
+    return (
+      <div key={group.id}>
+        <button
+          type="button"
+          onClick={() => toggleGroup(group.id)}
+          aria-expanded={isExpanded}
+          className="flex min-h-14 w-full items-center gap-2 bg-slate-50 px-3 py-2 text-left dark:bg-slate-800/80">
+          {isExpanded ? <ChevronDown size={16} className="shrink-0 text-slate-400" /> : <ChevronRight size={16} className="shrink-0 text-slate-400" />}
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2">
+              <span className="truncate text-sm font-black text-slate-900 dark:text-white">{group.label}</span>
+              {isCurrent && (
+                <span className="shrink-0 rounded-full bg-sky-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">Ici</span>
+              )}
+            </span>
+            <span className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              {rows.length} ligne{rows.length > 1 ? "s" : ""}
+              {group.country ? ` · ${group.country}` : ""}
+            </span>
+          </span>
+          <span className="shrink-0 text-right">
+            <span className="block text-sm font-black text-slate-900 dark:text-white">{formatEuros(group.paid)}</span>
+            <span className="block text-[11px] font-medium text-slate-400">prévu {formatEuros(group.estimated)}</span>
+          </span>
+        </button>
+
+        {isExpanded && (
+          <div className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-950/50">
+            {rows.map(renderMobileRow)}
+            {rows.length === 0 && (
+              <p className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400">Aucune dépense sur cette étape.</p>
+            )}
+            {onQuickAdd && group.id !== "general" && (
+              <button
+                type="button"
+                onClick={() => onQuickAdd(group.id)}
+                className="flex min-h-12 w-full items-center justify-center gap-1.5 text-sm font-bold text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-500/10">
+                <Plus size={16} strokeWidth={2.5} /> Ajouter une dépense ici
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderMobileLedger = () => (
+    <div className="space-y-3">
+      {segmentedGroups.segments.map((segment) => {
+        const isSegmentExpanded = expandedSegments.has(segment.id);
+        const segmentGap = segment.estimated - segment.paid;
+        const isCurrentSegment = segment.stepIds.includes(currentStepId);
+        const ratio = segment.estimated > 0 ? Math.min(segment.paid / segment.estimated, 1) : 0;
+
+        return (
+          <div key={segment.id} className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+            <button
+              type="button"
+              onClick={() => toggleSegment(segment.id)}
+              aria-expanded={isSegmentExpanded}
+              className="block w-full bg-slate-900 px-3 py-3 text-left text-white dark:bg-slate-950">
+              <span className="flex items-center gap-2">
+                {isSegmentExpanded ? <ChevronDown size={18} className="shrink-0 text-slate-400" /> : <ChevronRight size={18} className="shrink-0 text-slate-400" />}
+                <span className="min-w-0 flex-1 truncate text-base font-black">{segment.label}</span>
+                {isCurrentSegment && (
+                  <span className="shrink-0 rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">En cours</span>
+                )}
+              </span>
+              <span className="mt-2 flex items-end justify-between gap-3 pl-[26px]">
+                <span>
+                  <span className="block text-lg font-black leading-tight">{formatEuros(segment.paid)}</span>
+                  <span className="block text-[11px] font-medium text-slate-400">payés sur {formatEuros(segment.estimated)}</span>
+                </span>
+                <span className={`text-right text-xs font-black ${segmentGap > 0 ? "text-amber-400" : segmentGap < 0 ? "text-red-400" : "text-emerald-400"}`}>
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Écart</span>
+                  {formatEuros(segmentGap)}
+                </span>
+              </span>
+              <span className="mt-2 ml-[26px] block h-1.5 overflow-hidden rounded-full bg-white/10">
+                <span className={`block h-full rounded-full ${segmentGap < 0 ? "bg-red-400" : "bg-emerald-400"}`} style={{ width: `${ratio * 100}%` }} />
+              </span>
+            </button>
+            {isSegmentExpanded && (
+              <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                {segment.groups.map(renderMobileGroup)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {segmentedGroups.generalGroup && segmentedGroups.generalGroup.children.length > 0 && (
+        <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+          {renderMobileGroup(segmentedGroups.generalGroup)}
+        </div>
+      )}
+      {segmentedGroups.segments.length === 0 && !segmentedGroups.generalGroup?.children.length && (
+        <p className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          Aucune ligne pour ce filtre.
+        </p>
+      )}
+    </div>
+  );
+
   // Budget combiné : étapes/activités + frais généraux saisis à la main,
   // pour afficher un seul total cohérent au lieu de le fragmenter.
   const combinedBudget = tripBudget + totals.total;
   const combinedPaid = tripSpent + itemsPaidTotal;
 
   const summaryCards = [
-    { label: "Budget estimé", value: `${combinedBudget.toLocaleString("fr-FR")} €`, tone: "sky", note: "Étapes, activités et frais généraux" },
-    { label: "Déjà payé", value: `${combinedPaid.toLocaleString("fr-FR")} €`, tone: "emerald", note: "Ce qui a réellement été payé" },
-    { label: "À compléter", value: `${pendingBudgetValue.toLocaleString("fr-FR")} €`, tone: "amber", note: `${pendingBudgetRows.length} lignes sans paiement réel` },
+    { label: "Budget estimé", value: formatWholeEuros(combinedBudget), tone: "sky", note: "Étapes, activités et frais généraux" },
+    { label: "Déjà payé", value: formatWholeEuros(combinedPaid), tone: "emerald", note: "Ce qui a réellement été payé" },
+    { label: "À compléter", value: formatWholeEuros(pendingBudgetValue), tone: "amber", note: `${pendingBudgetRows.length} lignes sans paiement réel` },
   ];
 
   const toneClasses = {
@@ -664,9 +890,9 @@ export default function PreparationPage({ session, onBackToItinerary }) {
   };
 
   return (
-    <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-6 xl:px-8 xl:py-8">
+    <div className="mx-auto max-w-[1680px]">
       {/* HEADER */}
-      <div className="mb-6 flex flex-col gap-3 rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-6 hidden flex-col gap-3 rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85 sm:flex-row sm:items-center sm:justify-between lg:flex">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
             <CalendarDays size={13} /> Préparation
@@ -692,22 +918,25 @@ export default function PreparationPage({ session, onBackToItinerary }) {
 
       <div className="space-y-6">
         {/* SUMMARY CARDS */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
           {summaryCards.map((card) => (
-            <div key={card.label} className={`rounded-[28px] border p-5 shadow-sm ${toneClasses[card.tone]}`}>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{card.label}</p>
-              <p className="mt-3 text-3xl font-black tracking-tight text-slate-900 dark:text-white">{card.value}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{card.note}</p>
+            <div key={card.label} className={`min-w-0 rounded-2xl border p-3 shadow-sm sm:rounded-[28px] sm:p-5 ${toneClasses[card.tone]}`}>
+              <p className="truncate text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.18em]">{card.label}</p>
+              <p className="mt-1 text-lg font-black tracking-tight text-slate-900 dark:text-white sm:mt-3 sm:text-3xl">{card.value}</p>
+              <p className="mt-2 hidden text-xs leading-5 text-slate-500 dark:text-slate-400 sm:block">{card.note}</p>
             </div>
           ))}
         </div>
 
-        <TripSummary steps={steps} visaStats={{}} totalDistance={0} />
+        {/* Déjà présent sur l'onglet Itinéraire : inutile de le répéter sur téléphone */}
+        <div className="hidden lg:block">
+          <TripSummary steps={steps} visaStats={{}} totalDistance={0} />
+        </div>
 
         {/* 100% WIDTH TABLEAU DE SUIVI (FAÇON EXCEL) */}
-        <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85 sm:p-5">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
+        <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-3 shadow-[0_20px_60px_-35px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/85 sm:p-5">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3 sm:mb-4">
+            <div className="hidden md:block">
               <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                 <Wallet size={13} /> Tableau interactif
               </div>
@@ -718,8 +947,8 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                 Clique sur les montants, les titres ou les statuts pour les modifier directement. Déplie les étapes mères pour voir les détails.
               </p>
             </div>
-            <div className="flex flex-col items-end gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-              <div className="flex flex-wrap gap-2">
+            <div className="flex w-full flex-col gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400 md:w-auto md:items-end">
+              <div className="hide-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 md:mx-0 md:flex-wrap md:px-0">
                 {[
                   { key: "all", label: "Tout" },
                   { key: "pending", label: "En attente" },
@@ -730,7 +959,8 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                     key={option.key}
                     type="button"
                     onClick={() => setLedgerFilter(option.key)}
-                    className={`rounded-full border px-3 py-1 transition ${ledgerFilter === option.key ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-300"}`}>
+                    aria-pressed={ledgerFilter === option.key}
+                    className={`min-h-10 shrink-0 rounded-full border px-4 text-xs font-bold tracking-normal transition md:min-h-0 md:px-3 md:py-1 md:text-[11px] md:tracking-[0.16em] ${ledgerFilter === option.key ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-300"}`}>
                     {option.label}
                   </button>
                 ))}
@@ -738,6 +968,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
             </div>
           </div>
 
+          {!isTable ? renderMobileLedger() : (
           <div className="overflow-hidden rounded-3xl border border-slate-200/80 dark:border-slate-700">
             <div className="max-h-[600px] overflow-auto overscroll-contain">
               <table className="min-w-[800px] w-full border-collapse text-left text-sm">
@@ -799,6 +1030,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
               </table>
             </div>
           </div>
+          )}
         </div>
 
         {/* FRAIS GÉNÉRAUX : dépenses hors étapes (nourriture, visa, assurance...) */}
@@ -833,7 +1065,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                 <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Intitulé
                 </label>
-                <input type="text" placeholder="Ex. Nourriture, assurance, visa..." value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+                <input type="text" placeholder="Ex. Nourriture, assurance, visa..." value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base outline-none focus:border-sky-400 sm:text-sm focus:ring-4 focus:ring-sky-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -841,7 +1073,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                   <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Catégorie
                   </label>
-                  <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                  <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base outline-none focus:border-sky-400 sm:text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
                     {CATEGORY_ORDER.map(cat => <option key={cat} value={cat}>{CATEGORY_META[cat].label}</option>)}
                   </select>
                 </div>
@@ -849,7 +1081,7 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                   <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Statut
                   </label>
-                  <select value={form.payment} onChange={(e) => setForm({ ...form, payment: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                  <select value={form.payment} onChange={(e) => setForm({ ...form, payment: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base outline-none focus:border-sky-400 sm:text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
                     {Object.entries(PAYMENT_META).map(([val, meta]) => <option key={val} value={val}>{meta.label}</option>)}
                   </select>
                 </div>
@@ -861,26 +1093,32 @@ export default function PreparationPage({ session, onBackToItinerary }) {
                 <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Montant
                 </label>
-                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 focus-within:border-sky-400 focus-within:ring-4 focus-within:ring-sky-500/10 dark:border-slate-700 dark:bg-slate-900">
-                  <input type="number" min="0" step="0.01" placeholder="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-full bg-transparent text-sm outline-none dark:text-white" />
+                <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 focus-within:border-sky-400 focus-within:ring-4 focus-within:ring-sky-500/10 dark:border-slate-700 dark:bg-slate-900">
+                  <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="0" aria-label="Montant" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-full bg-transparent text-base outline-none dark:text-white sm:text-sm" />
                   <span className="text-sm font-black text-slate-400 dark:text-slate-500">€</span>
-                </div>
+                </label>
               </div>
 
               <div>
                 <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Étape liée (optionnel)
                 </label>
-                <select value={form.relatedTo} onChange={(e) => setForm({ ...form, relatedTo: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                <select value={form.relatedTo} onChange={(e) => setForm({ ...form, relatedTo: e.target.value })} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base outline-none focus:border-sky-400 sm:text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
                   {relatedOptions.map((opt) => <option key={opt.value || "travel"} value={opt.value}>{opt.label}</option>)}
                 </select>
               </div>
 
-              <button type="submit" className="w-full rounded-xl bg-sky-600 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
+              <button type="submit" className="min-h-12 w-full rounded-xl bg-sky-600 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-sky-700">
                 Ajouter la dépense
               </button>
             </div>
           </form>
+          )}
+
+          {!isReadOnly && items.length > 0 && (
+            <button type="button" onClick={clearAll} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-bold text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 lg:hidden">
+              <Trash2 size={16} /> Vider les frais généraux
+            </button>
           )}
         </div>
         )}

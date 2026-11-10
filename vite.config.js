@@ -15,7 +15,7 @@ export default defineConfig({
         name: 'Asia Travel Planner',
         short_name: 'TravelPlanner',
         description: 'Mon itinéraire de voyage en Asie',
-        theme_color: '#3b82f6',
+        theme_color: '#020617',
         background_color: '#ffffff',
         display: 'standalone',
         icons: [

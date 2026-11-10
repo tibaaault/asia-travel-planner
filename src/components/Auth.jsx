@@ -103,7 +103,7 @@ export default function Auth({ session }) {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleLogout}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:border-red-200 hover:text-red-300 dark:border-slate-700 dark:bg-slate-900/80 dark:text-white">
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:border-red-200 hover:text-red-300 dark:border-slate-700 dark:bg-slate-900/80 dark:text-white">
             <ShieldCheck size={14} className="text-emerald-500" /> Admin
             connecté
             <LogOut size={14} />
@@ -116,7 +116,7 @@ export default function Auth({ session }) {
                 currentMode === "signup" ? "login" : "signup",
               );
             }}
-            className="inline-flex items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300 shadow-sm transition hover:bg-sky-500/15">
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-700 shadow-sm transition hover:bg-sky-500/15 dark:text-sky-300">
             <UserPlus size={14} className="mr-1" /> Créer un compte
           </button>
         </div>
@@ -134,26 +134,26 @@ export default function Auth({ session }) {
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2.5 text-base text-white caret-white sm:py-2 sm:text-xs outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
             />
             <input
               type="email"
               placeholder="Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2.5 text-base text-white caret-white sm:py-2 sm:text-xs outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
             />
             <input
               type="password"
               placeholder="Mot de passe"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+              className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2.5 text-base text-white caret-white sm:py-2 sm:text-xs outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
             />
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-3 py-2 text-white shadow-md shadow-sky-900/15 hover:bg-sky-400 disabled:cursor-wait disabled:opacity-70">
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-sky-500 px-3 py-2 text-white shadow-md shadow-sky-900/15 hover:bg-sky-400 disabled:cursor-wait disabled:opacity-70">
               {loading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
@@ -193,19 +193,19 @@ export default function Auth({ session }) {
         placeholder="Username"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
-        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2.5 text-base text-white caret-white sm:py-2 sm:text-xs outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
       />
       <input
         type="password"
         placeholder="Mot de passe"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2 text-xs text-white caret-white outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
+        className="min-w-40 flex-1 rounded-lg border border-transparent bg-slate-950/70 px-3 py-2.5 text-base text-white caret-white sm:py-2 sm:text-xs outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-slate-950 focus:ring-4 focus:ring-sky-500/10 dark:bg-slate-950/70 dark:text-white dark:focus:bg-slate-950"
       />
       <button
         type="submit"
         disabled={loading}
-        className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-3 py-2 text-white shadow-md shadow-sky-900/15 hover:bg-sky-400 disabled:cursor-wait disabled:opacity-70 dark:bg-sky-400 dark:text-slate-950 dark:hover:bg-sky-300">
+        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-sky-500 px-3 py-2 text-white shadow-md shadow-sky-900/15 hover:bg-sky-400 disabled:cursor-wait disabled:opacity-70 dark:bg-sky-400 dark:text-slate-950 dark:hover:bg-sky-300">
         {loading ? (
           <Loader2 size={14} className="animate-spin" />
         ) : (

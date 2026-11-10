@@ -155,8 +155,22 @@
       opacity 0.2s ease;
   }
 
-  button:hover {
-    transform: translateY(-1px);
+  /* Uniquement avec une souris : sur un écran tactile, l'état :hover reste
+     collé après l'appui et le bouton restait décalé d'un pixel. */
+  @media (hover: hover) {
+    button:hover {
+      transform: translateY(-1px);
+    }
+  }
+
+  /* Pas de délai ni de zoom au double appui sur les éléments cliquables. */
+  button,
+  a,
+  select,
+  label,
+  [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   button:focus-visible,
@@ -169,6 +183,12 @@
 }
 
 @layer utilities {
+  /* Téléphone tenu en paysage : le contenu ne passe pas sous l'encoche. */
+  .safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -204,6 +224,21 @@
 
   .animate-fade-in {
     animation: fadeIn 0.3s ease-out forwards;
+  }
+
+  @keyframes sheetUp {
+    0% {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-sheet-up {
+    animation: sheetUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   @keyframes softFloat {

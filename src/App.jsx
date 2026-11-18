@@ -16,7 +16,7 @@ import BackpackModal from "./components/BackpackModal";
 import { supabase } from "./config/supabaseClient";
 import { useSteps } from "./hooks/useSteps";
 import { computeStepDates, getTripProgress } from "./utils/dates";
-import { formatEuros } from "./utils/currency";
+import { formatEuros, splitByPayer } from "./utils/currency";
 import { createId } from "./utils/ids";
 
 const VIEW_TITLES = {
@@ -98,22 +98,28 @@ function App() {
   );
   const closeQuickAdd = useCallback(() => setQuickAdd(null), []);
 
-  const handleQuickAdd = async ({ stepId, title, amountEur, note }) => {
+  const handleQuickAdd = async ({ stepId, title, amountEur, payer, note }) => {
     const step = trip.steps.find((s) => s.id === stepId);
     if (!step) return;
+    const { mine, others } = splitByPayer(amountEur, payer);
     const activity = {
       id: createId(),
       title,
       place: "",
       notes: note,
       estimatedPrice: 0,
-      price: amountEur,
+      price: mine,
+      paidByOthers: others,
       lat: null,
       lng: null,
     };
     await trip.appendActivity(stepId, activity);
     setQuickAdd(null);
-    setToast(`${formatEuros(amountEur)} ajoutés à ${step.city}`);
+    setToast(
+      others > 0 && mine === 0
+        ? `${formatEuros(amountEur)} payés par d’autres ajoutés à ${step.city}`
+        : `${formatEuros(amountEur)} ajoutés à ${step.city}`,
+    );
   };
 
   const handlePrint = () => {

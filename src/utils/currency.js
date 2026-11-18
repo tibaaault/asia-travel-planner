@@ -38,6 +38,17 @@ export const toEuros = (amount, currency, rates) => {
 
 export const roundMoney = (value) => Math.round(value * 100) / 100;
 
+// Répartit un montant selon qui l'a payé : "me", "half" (moitié-moitié) ou
+// "others" (parents, ami...). Renvoie ma part et celle des autres.
+export const splitByPayer = (amountEur, payer) => {
+  if (payer === "others") return { mine: 0, others: amountEur };
+  if (payer === "half") {
+    const mine = roundMoney(amountEur / 2);
+    return { mine, others: roundMoney(amountEur - mine) };
+  }
+  return { mine: amountEur, others: 0 };
+};
+
 // "12 €" pour un montant rond, "4,20 €" sinon (jamais "4,2 €").
 export const formatEuros = (value) => {
   const amount = roundMoney(Number(value) || 0);

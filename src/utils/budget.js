@@ -15,6 +15,11 @@ export const getActivityEstimatedPrice = (activity) =>
 export const getActivityPaidPrice = (activity) =>
   toNumber(activity?.price ?? 0);
 
+// Part payée par quelqu'un d'autre (parents, ami...). Elle compte dans le
+// coût total du voyage, pas dans ce que j'ai payé : "payé" reste ma part.
+export const getActivityOthersPrice = (activity) =>
+  toNumber(activity?.paidByOthers ?? 0);
+
 export const getStepEstimatedTotal = (step) =>
   toNumber(step?.budget_estimated) +
   toNumber(step?.lodging_price_estimated) +
@@ -33,11 +38,23 @@ export const getStepPaidTotal = (step) =>
     0,
   );
 
+export const getStepOthersTotal = (step) =>
+  toNumber(step?.budget_others) +
+  toNumber(step?.lodging_price_others) +
+  toNumber(step?.transport_price_others) +
+  (step?.activities || []).reduce(
+    (acc, activity) => acc + getActivityOthersPrice(activity),
+    0,
+  );
+
 export const getTripEstimatedTotal = (steps) =>
   steps.reduce((acc, step) => acc + getStepEstimatedTotal(step), 0);
 
 export const getTripPaidTotal = (steps) =>
   steps.reduce((acc, step) => acc + getStepPaidTotal(step), 0);
+
+export const getTripOthersTotal = (steps) =>
+  steps.reduce((acc, step) => acc + getStepOthersTotal(step), 0);
 
 export const getParentStepBudgetBreakdown = (steps) => {
   const sortedSteps = [...steps].sort((a, b) => a.position - b.position);

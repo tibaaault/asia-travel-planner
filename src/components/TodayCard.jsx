@@ -1,7 +1,11 @@
 import { ArrowRight, Hotel, Plus, Sun } from "lucide-react";
 import { formatShortDate } from "../utils/dates";
 import { formatEuros } from "../utils/currency";
-import { getStepEstimatedTotal, getStepPaidTotal } from "../utils/budget";
+import {
+  getStepEstimatedTotal,
+  getStepOthersTotal,
+  getStepPaidTotal,
+} from "../utils/budget";
 
 const STATUS_LABEL = {
   A_RESERVER: {
@@ -42,6 +46,7 @@ export default function TodayCard({
     (s) => s.id === current.id || s.parent_id === current.id,
   );
   const paid = branch.reduce((acc, s) => acc + getStepPaidTotal(s), 0);
+  const others = branch.reduce((acc, s) => acc + getStepOthersTotal(s), 0);
   const estimated = branch.reduce(
     (acc, s) => acc + getStepEstimatedTotal(s),
     0,
@@ -120,6 +125,11 @@ export default function TodayCard({
           Dépensé ici :{" "}
           <span className="font-black text-white">{formatEuros(paid)}</span>
           {estimated > 0 && <> sur {formatEuros(estimated)}</>}
+          {others > 0 && (
+            <span className="block font-bold text-violet-300">
+              + {formatEuros(others)} payés par d’autres
+            </span>
+          )}
         </p>
         {onQuickAdd && (
           <button

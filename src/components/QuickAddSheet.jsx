@@ -6,6 +6,7 @@ import {
   formatEuros,
   getCurrencyForCountry,
   roundMoney,
+  splitByPayer,
   toEuros,
 } from "../utils/currency";
 import { getTripSegments } from "../utils/budget";
@@ -19,6 +20,15 @@ const QUICK_LABELS = [
   { emoji: "🎟️", label: "Activité" },
   { emoji: "🏨", label: "Hébergement" },
   { emoji: "🛍️", label: "Achat" },
+];
+
+// Qui a payé : moi, moitié-moitié (ex. un ami), ou quelqu'un d'autre
+// (ex. les parents). La part des autres compte dans le coût total du
+// voyage, pas dans ce que j'ai payé.
+const PAYERS = [
+  { id: "me", label: "Moi" },
+  { id: "half", label: "Moitié-moitié" },
+  { id: "others", label: "Quelqu’un d’autre" },
 ];
 
 const parseAmount = (value) =>
@@ -50,6 +60,7 @@ export default function QuickAddSheet({
   const [amount, setAmount] = useState("");
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
+  const [payer, setPayer] = useState("me");
 
   const { rates, fetchedAt } = useExchangeRates();
   const euros = toEuros(amount, currency, rates);
@@ -80,7 +91,7 @@ export default function QuickAddSheet({
         ? ""
         : `${parseAmount(amount).toLocaleString("fr-FR")} ${currency} (1 € = ${Math.round(rates[currency]).toLocaleString("fr-FR")} ${currency})`;
     try {
-      await onSubmit({ stepId, title: title.trim(), amountEur, note });
+      await onSubmit({ stepId, title: title.trim(), amountEur, payer, note });
     } finally {
       setSaving(false);
     }
@@ -91,7 +102,7 @@ export default function QuickAddSheet({
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label htmlFor="quick-amount" className={fieldLabelClass}>
-            Montant payé
+            Montant total
           </label>
           <div className="flex items-stretch gap-2">
             <input
@@ -171,6 +182,40 @@ export default function QuickAddSheet({
             onChange={(e) => setTitle(e.target.value)}
             className={inputClass}
           />
+        </div>
+
+        <div>
+          <p id="quick-payer-label" className={fieldLabelClass}>
+            Payé par
+          </p>
+          <div
+            role="radiogroup"
+            aria-labelledby="quick-payer-label"
+            className="grid grid-cols-3 gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
+            {PAYERS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={payer === option.id}
+                onClick={() => setPayer(option.id)}
+                className={`min-h-11 rounded-xl px-1 text-xs font-black leading-tight transition-colors sm:text-sm ${payer === option.id ? (option.id === "me" ? "bg-white text-emerald-700 shadow-sm dark:bg-slate-950 dark:text-emerald-300" : "bg-white text-violet-700 shadow-sm dark:bg-slate-950 dark:text-violet-300") : "text-slate-500 dark:text-slate-400"}`}>
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {payer !== "me" && euros > 0 && (
+            <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+              Ta part :{" "}
+              <span className="font-black text-emerald-600 dark:text-emerald-400">
+                {formatEuros(splitByPayer(roundMoney(euros), payer).mine)}
+              </span>{" "}
+              · autres :{" "}
+              <span className="font-black text-violet-600 dark:text-violet-400">
+                {formatEuros(splitByPayer(roundMoney(euros), payer).others)}
+              </span>
+            </p>
+          )}
         </div>
 
         <div>

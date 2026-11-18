@@ -3,6 +3,7 @@ import { getDaysFromNights } from "../utils/duration";
 import {
   getTopLevelSteps,
   getTripEstimatedTotal,
+  getTripOthersTotal,
   getTripPaidTotal,
 } from "../utils/budget";
 
@@ -19,6 +20,7 @@ export default function TripSummary({ steps, visaStats, totalDistance = 0 }) {
   const travelSteps = getTopLevelSteps(steps);
   const totalBudget = getTripEstimatedTotal(steps);
   const totalSpent = getTripPaidTotal(steps);
+  const totalOthers = getTripOthersTotal(steps);
   const totalDays = travelSteps.reduce((acc, step) => acc + (Number(step.duration) || 0), 0);
   const uniqueCountries = new Set(travelSteps.map((step) => step.country)).size;
   const totalSteps = steps.length;
@@ -130,6 +132,22 @@ export default function TripSummary({ steps, visaStats, totalDistance = 0 }) {
                 style={{ width: `${progressWidth}%` }}
               />
             </div>
+          </div>
+        )}
+
+        {/* Ce que d'autres ont payé n'entre pas dans mon budget : on l'affiche
+            à part pour connaître le coût réel du voyage. */}
+        {totalOthers > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-sm dark:border-violet-900/40 dark:bg-violet-500/10">
+            <span className="font-semibold text-slate-600 dark:text-slate-300">
+              Payé par d’autres
+              <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">
+                Coût total : {Math.round(totalSpent + totalOthers).toLocaleString("fr-FR")} €
+              </span>
+            </span>
+            <span className="font-black text-violet-600 dark:text-violet-400">
+              {Math.round(totalOthers).toLocaleString("fr-FR")} €
+            </span>
           </div>
         )}
       </div>

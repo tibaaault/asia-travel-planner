@@ -11,7 +11,6 @@ import {
   Plane,
   Wallet,
   Save,
-  CheckCircle,
   FileText,
   UploadCloud,
   Download,
@@ -145,6 +144,65 @@ const geocodeWithTimeout = (query, ms = 4000) =>
     new Promise((resolve) => setTimeout(() => resolve(null), ms)),
   ]).catch(() => null);
 
+const AMOUNT_TONES = {
+  estimated: {
+    label: "text-slate-500 dark:text-slate-400",
+    input:
+      "border-slate-200 bg-slate-50/50 text-slate-900 dark:border-slate-700 dark:bg-slate-900/50 dark:text-white",
+  },
+  mine: {
+    label: "text-emerald-600 dark:text-emerald-400",
+    input:
+      "border-emerald-200 bg-emerald-50/50 text-emerald-700 font-bold dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-300",
+  },
+  others: {
+    label: "text-violet-600 dark:text-violet-400",
+    input:
+      "border-violet-200 bg-violet-50/50 text-violet-700 font-bold dark:border-violet-800/50 dark:bg-violet-900/20 dark:text-violet-300",
+  },
+};
+
+// Base sans couleur : la teinte vient d'AMOUNT_TONES (deux classes de fond
+// dans la même liste se contredisent, et l'une des deux est ignorée).
+const amountInputClass =
+  "w-full rounded-xl border px-3 pr-7 py-2.5 font-mono text-base outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 sm:text-sm dark:focus:border-blue-400";
+
+// Montant en euros avec son libellé au-dessus : trois tiennent côte à côte
+// sur un téléphone (estimé, payé par moi, payé par d'autres).
+const AmountField = ({ label, value, onChange, readOnly, tone = "estimated" }) => (
+  <label className="block min-w-0">
+    <span
+      className={`mb-1 block truncate text-[11px] font-bold uppercase tracking-wide ${AMOUNT_TONES[tone].label}`}>
+      {label}
+    </span>
+    <span className="relative block">
+      <input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step="0.01"
+        placeholder="0"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        className={`${amountInputClass} ${AMOUNT_TONES[tone].input}`}
+      />
+      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
+        €
+      </span>
+    </span>
+  </label>
+);
+
+const toAmount = (value) => Number.parseFloat(value) || 0;
+
+// Répartit un total à parts égales entre moi et les autres (au centime).
+const splitInHalf = (mine, others) => {
+  const total = toAmount(mine) + toAmount(others);
+  const myHalf = Math.round((total / 2) * 100) / 100;
+  return [myHalf, Math.round((total - myHalf) * 100) / 100];
+};
+
 // État dont chaque modification signale "il y a quelque chose à enregistrer".
 const useTrackedState = (initialValue, onChange) => {
   const [value, setValue] = useState(initialValue);
@@ -207,6 +265,7 @@ export default function StepModal({
   const [newActivityEstimatedPrice, setNewActivityEstimatedPrice] =
     useState("");
   const [newActivityPaidPrice, setNewActivityPaidPrice] = useState("");
+  const [newActivityOthersPrice, setNewActivityOthersPrice] = useState("");
   const [savingActivities, setSavingActivities] = useState(false);
   const [activitiesDirty, setActivitiesDirty] = useState(false);
   const [expandedActivityId, setExpandedActivityId] = useState(null);
@@ -234,16 +293,25 @@ export default function StepModal({
   const [budgetSpent, setBudgetSpent] = useLogisticsField(
     step.budget_spent || "0",
   );
+  const [budgetOthers, setBudgetOthers] = useLogisticsField(
+    step.budget_others || "0",
+  );
   const [lodgingPriceEstimated, setLodgingPriceEstimated] = useLogisticsField(
     step.lodging_price_estimated || "0",
   );
   const [lodgingPricePaid, setLodgingPricePaid] = useLogisticsField(
     step.lodging_price_paid || "0",
   );
+  const [lodgingPriceOthers, setLodgingPriceOthers] = useLogisticsField(
+    step.lodging_price_others || "0",
+  );
   const [transportPriceEstimated, setTransportPriceEstimated] =
     useLogisticsField(step.transport_price_estimated || "0");
   const [transportPricePaid, setTransportPricePaid] = useLogisticsField(
     step.transport_price_paid || "0",
+  );
+  const [transportPriceOthers, setTransportPriceOthers] = useLogisticsField(
+    step.transport_price_others || "0",
   );
 
   const [checklist, setChecklist] = useState(step.checklist || []);
@@ -390,6 +458,7 @@ export default function StepModal({
                   ? Number.parseFloat(activity.price) || 0
                   : Number.parseFloat(activity.estimatedPrice) || 0,
               price: Number.parseFloat(activity.price) || 0,
+              paidByOthers: Number.parseFloat(activity.paidByOthers) || 0,
               lat: location?.lat ?? activity.lat ?? null,
               lng: location?.lng ?? activity.lng ?? null,
             };
@@ -406,6 +475,11 @@ export default function StepModal({
 
   // Activités dont le lieu a changé depuis le dernier enregistrement (ou
   // n'a jamais pu être placé sur la carte).
+  const activitiesOthersTotal = activities.reduce(
+    (acc, activity) => acc + toAmount(activity.paidByOthers),
+    0,
+  );
+
   const getPlaceChangedIds = (list) => {
     const savedById = new Map(
       (step.activities || []).map((activity) => [activity.id, activity]),
@@ -435,6 +509,7 @@ export default function StepModal({
         notes: newActivityNotes.trim(),
         estimatedPrice: newActivityEstimatedPrice,
         price: newActivityPaidPrice,
+        paidByOthers: newActivityOthersPrice,
         lat: null,
         lng: null,
       },
@@ -444,6 +519,7 @@ export default function StepModal({
     setNewActivityNotes("");
     setNewActivityEstimatedPrice("");
     setNewActivityPaidPrice("");
+    setNewActivityOthersPrice("");
     setShowNewActivityDetails(false);
     await persistActivities(nextActivities, getPlaceChangedIds(nextActivities));
   };
@@ -551,6 +627,9 @@ export default function StepModal({
       lodging_price_paid: parseFloat(lodgingPricePaid) || 0,
       transport_price_estimated: parseFloat(transportPriceEstimated) || 0,
       transport_price_paid: parseFloat(transportPricePaid) || 0,
+      budget_others: parseFloat(budgetOthers) || 0,
+      lodging_price_others: parseFloat(lodgingPriceOthers) || 0,
+      transport_price_others: parseFloat(transportPriceOthers) || 0,
     });
     setLogisticsDirty(false);
     setLogisticsSaved(true);
@@ -591,36 +670,49 @@ export default function StepModal({
     await onUpdateStep(step.id, { checklist: updatedList });
   };
 
-  // Prix estimé / payé d'un bloc Hébergement ou Transport
-  const renderPriceInputs = (estimated, setEstimated, paid, setPaid) => (
-    <div className="mt-3 grid grid-cols-2 gap-3">
-      {[
-        { label: "Prix estimé", value: estimated, onChange: setEstimated },
-        { label: "Prix payé", value: paid, onChange: setPaid },
-      ].map((field) => (
-        <label key={field.label} className="block">
-          <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
-            {field.label}
-          </span>
-          <div className="relative">
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={field.value}
-              onChange={(e) => field.onChange(e.target.value)}
-              disabled={isReadOnly}
-              className={`${inputClass} pr-8`}
-            />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
-              €
+  // Prix d'un bloc Hébergement, Transport ou Autres frais : estimé, ma part
+  // et la part payée par d'autres (parents, ami...).
+  const renderPriceInputs = (
+    estimated,
+    setEstimated,
+    paid,
+    setPaid,
+    others,
+    setOthers,
+  ) => {
+    const total = toAmount(paid) + toAmount(others);
+    return (
+      <div className="mt-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <AmountField label="Estimé" value={estimated} onChange={setEstimated} readOnly={isReadOnly} />
+          <AmountField label="Payé (moi)" value={paid} onChange={setPaid} readOnly={isReadOnly} tone="mine" />
+          <AmountField label="Payé (autres)" value={others} onChange={setOthers} readOnly={isReadOnly} tone="others" />
+        </div>
+        {(toAmount(others) > 0 || (!isReadOnly && total > 0)) && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <span>
+              Coût total :{" "}
+              <span className="font-black text-slate-800 dark:text-slate-100">
+                {formatEuros(total)}
+              </span>
             </span>
+            {!isReadOnly && total > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const [myHalf, othersHalf] = splitInHalf(paid, others);
+                  setPaid(String(myHalf));
+                  setOthers(String(othersHalf));
+                }}
+                className="min-h-10 rounded-lg px-2 font-bold text-violet-600 hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-violet-500/10">
+                Partager moitié-moitié
+              </button>
+            )}
           </div>
-        </label>
-      ))}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   // Rendue directement dans <body> : sinon elle resterait prise dans la
   // couche du contenu, sous la barre de navigation du téléphone.
@@ -1076,43 +1168,24 @@ export default function StepModal({
                           className={inputClass}
                         />
 
-                        <div className="grid grid-cols-2 gap-3">
-                          <label className="flex items-center gap-2 border border-slate-200 dark:border-slate-700 rounded-xl px-3 bg-slate-50 dark:bg-slate-900/50 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all">
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                              Estimé
-                            </span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min="0"
-                              step="0.01"
-                              value={newActivityEstimatedPrice}
-                              onChange={(e) =>
-                                setNewActivityEstimatedPrice(e.target.value)
-                              }
-                              placeholder="0"
-                              className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-slate-900 dark:text-white"
-                            />
-                            <span className="text-slate-400 font-bold">€</span>
-                          </label>
-                          <label className="flex items-center gap-2 border border-emerald-200 dark:border-emerald-800/50 rounded-xl px-3 bg-emerald-50/50 dark:bg-emerald-900/20 focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all">
-                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-500 uppercase tracking-wider">
-                              Payé
-                            </span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min="0"
-                              step="0.01"
-                              value={newActivityPaidPrice}
-                              onChange={(e) =>
-                                setNewActivityPaidPrice(e.target.value)
-                              }
-                              placeholder="0"
-                              className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-emerald-700 dark:text-emerald-400 font-bold"
-                            />
-                            <span className="text-emerald-500 font-bold">€</span>
-                          </label>
+                        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                          <AmountField
+                            label="Estimé"
+                            value={newActivityEstimatedPrice}
+                            onChange={setNewActivityEstimatedPrice}
+                          />
+                          <AmountField
+                            label="Payé (moi)"
+                            value={newActivityPaidPrice}
+                            onChange={setNewActivityPaidPrice}
+                            tone="mine"
+                          />
+                          <AmountField
+                            label="Payé (autres)"
+                            value={newActivityOthersPrice}
+                            onChange={setNewActivityOthersPrice}
+                            tone="others"
+                          />
                         </div>
 
                         {showNewActivityDetails ? (
@@ -1159,20 +1232,24 @@ export default function StepModal({
                   )}
 
                   <div className="space-y-3">
-                    <div className="mb-1 flex items-baseline justify-between gap-3">
+                    <div className="mb-1 flex items-start justify-between gap-3">
                       <h3 className="font-black text-slate-900 dark:text-white text-lg sm:text-xl">
                         Programme prévu
                       </h3>
                       {activities.length > 0 && (
-                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                        <span className="text-right text-xs font-bold text-slate-500 dark:text-slate-400">
                           {formatEuros(
                             activities.reduce(
-                              (acc, activity) =>
-                                acc + (Number.parseFloat(activity.price) || 0),
+                              (acc, activity) => acc + toAmount(activity.price),
                               0,
                             ),
                           )}{" "}
                           payés
+                          {activitiesOthersTotal > 0 && (
+                            <span className="block text-violet-600 dark:text-violet-400">
+                              + {formatEuros(activitiesOthersTotal)} par d’autres
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>
@@ -1184,7 +1261,8 @@ export default function StepModal({
                     ) : (
                       activities.map((activity) => {
                         const isOpen = expandedActivityId === activity.id;
-                        const paid = Number.parseFloat(activity.price) || 0;
+                        const paid = toAmount(activity.price);
+                        const others = toAmount(activity.paidByOthers);
                         const estimated =
                           Number.parseFloat(
                             activity.estimatedPrice ?? activity.price,
@@ -1213,9 +1291,14 @@ export default function StepModal({
                               </span>
                               <span className="shrink-0 text-right">
                                 <span
-                                  className={`block text-sm font-black ${paid > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400"}`}>
+                                  className={`block text-sm font-black ${paid > 0 ? "text-emerald-600 dark:text-emerald-400" : others > 0 ? "text-slate-500 dark:text-slate-400" : "text-slate-400"}`}>
                                   {formatEuros(paid)}
                                 </span>
+                                {others > 0 && (
+                                  <span className="block text-[11px] font-bold text-violet-600 dark:text-violet-400">
+                                    + {formatEuros(others)} autres
+                                  </span>
+                                )}
                                 <span className="block text-[11px] font-medium text-slate-400">
                                   prévu {formatEuros(estimated)}
                                 </span>
@@ -1266,62 +1349,46 @@ export default function StepModal({
                                   />
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
-                                  <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 rounded-xl border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
-                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                                      Estimé
-                                    </span>
-                                    <input
-                                      type="number"
-                                      inputMode="decimal"
-                                      min="0"
-                                      step="0.01"
-                                      value={
-                                        activity.estimatedPrice ??
-                                        activity.price ??
-                                        ""
-                                      }
-                                      onChange={(e) =>
-                                        updateActivityField(
-                                          activity.id,
-                                          "estimatedPrice",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-slate-900 dark:text-white"
-                                      placeholder="0"
-                                      readOnly={isReadOnly}
-                                    />
-                                    <span className="text-slate-400 font-bold">
-                                      €
-                                    </span>
-                                  </label>
-                                  <label className="flex items-center gap-2 bg-emerald-50/50 dark:bg-emerald-900/20 px-3 rounded-xl border border-emerald-100 dark:border-emerald-800/50 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10 transition-all">
-                                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500">
-                                      Payé
-                                    </span>
-                                    <input
-                                      type="number"
-                                      inputMode="decimal"
-                                      min="0"
-                                      step="0.01"
-                                      value={activity.price ?? ""}
-                                      onChange={(e) =>
-                                        updateActivityField(
-                                          activity.id,
-                                          "price",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="w-full min-w-0 bg-transparent py-3 text-right font-mono text-base outline-none text-emerald-700 dark:text-emerald-400 font-bold"
-                                      placeholder="0"
-                                      readOnly={isReadOnly}
-                                    />
-                                    <span className="text-emerald-500 font-bold">
-                                      €
-                                    </span>
-                                  </label>
+                                <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                                  <AmountField
+                                    label="Estimé"
+                                    value={activity.estimatedPrice ?? activity.price}
+                                    onChange={(value) =>
+                                      updateActivityField(activity.id, "estimatedPrice", value)
+                                    }
+                                    readOnly={isReadOnly}
+                                  />
+                                  <AmountField
+                                    label="Payé (moi)"
+                                    value={activity.price}
+                                    onChange={(value) =>
+                                      updateActivityField(activity.id, "price", value)
+                                    }
+                                    readOnly={isReadOnly}
+                                    tone="mine"
+                                  />
+                                  <AmountField
+                                    label="Payé (autres)"
+                                    value={activity.paidByOthers}
+                                    onChange={(value) =>
+                                      updateActivityField(activity.id, "paidByOthers", value)
+                                    }
+                                    readOnly={isReadOnly}
+                                    tone="others"
+                                  />
                                 </div>
+                                {!isReadOnly && paid + others > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const [myHalf, othersHalf] = splitInHalf(activity.price, activity.paidByOthers);
+                                      updateActivityField(activity.id, "price", String(myHalf));
+                                      updateActivityField(activity.id, "paidByOthers", String(othersHalf));
+                                    }}
+                                    className="-mt-1 min-h-10 rounded-lg px-2 text-xs font-bold text-violet-600 hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-violet-500/10">
+                                    Partager moitié-moitié ({formatEuros(paid + others)} au total)
+                                  </button>
+                                )}
 
                                 <textarea
                                   value={activity.notes || ""}
@@ -1459,6 +1526,8 @@ export default function StepModal({
                       setLodgingPriceEstimated,
                       lodgingPricePaid,
                       setLodgingPricePaid,
+                      lodgingPriceOthers,
+                      setLodgingPriceOthers,
                     )}
                   </div>
 
@@ -1486,50 +1555,26 @@ export default function StepModal({
                       setTransportPriceEstimated,
                       transportPricePaid,
                       setTransportPricePaid,
+                      transportPriceOthers,
+                      setTransportPriceOthers,
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 sm:p-6 shadow-sm">
-                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2 mb-3">
-                        <Wallet size={16} /> Autres frais prévus (Étape)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          inputMode="decimal"
-                          value={budget}
-                          onChange={(e) => setBudget(e.target.value)}
-                          disabled={isReadOnly}
-                          className="min-h-11 w-full bg-transparent text-2xl sm:text-3xl font-black text-slate-900 dark:text-white outline-none border-b-2 border-transparent focus:border-blue-500 transition-colors"
-                        />
-                        <span className="text-xl font-black text-slate-400">
-                          €
-                        </span>
-                      </div>
-                    </div>
-                    <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/50 rounded-3xl p-4 sm:p-6 shadow-sm">
-                      <label className="text-xs font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-2 mb-3">
-                        <CheckCircle size={16} /> Autres frais payés
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          inputMode="decimal"
-                          value={budgetSpent}
-                          onChange={(e) => setBudgetSpent(e.target.value)}
-                          disabled={isReadOnly}
-                          className="min-h-11 w-full bg-transparent text-2xl sm:text-3xl font-black text-emerald-700 dark:text-emerald-400 outline-none border-b-2 border-transparent focus:border-emerald-500 transition-colors"
-                        />
-                        <span className="text-xl font-black text-emerald-500/50">
-                          €
-                        </span>
-                      </div>
-                    </div>
+                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-3xl p-4 sm:p-6 shadow-sm">
+                    <label className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                      <Wallet size={20} className="text-slate-500" /> Autres frais
+                    </label>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Ce qui n’est ni l’hébergement, ni le transport, ni une activité.
+                    </p>
+                    {renderPriceInputs(
+                      budget,
+                      setBudget,
+                      budgetSpent,
+                      setBudgetSpent,
+                      budgetOthers,
+                      setBudgetOthers,
+                    )}
                   </div>
                 </div>
 

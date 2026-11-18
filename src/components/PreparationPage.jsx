@@ -20,8 +20,10 @@ import TripSummary from "./TripSummary";
 import {
   getActivityEstimatedPrice,
   getActivityPaidPrice,
+  getActivityOthersPrice,
   getTripEstimatedTotal,
   getTripPaidTotal,
+  getTripOthersTotal,
   getTopLevelSteps,
   getTripSegments,
 } from "../utils/budget";
@@ -58,7 +60,7 @@ const initialFormState = {
 // ==========================================
 // COMPOSANTS CELLULES ÉDITABLES (FAÇON EXCEL)
 // ==========================================
-const EditableCurrency = ({ value, onSave, readonly, label }) => {
+const EditableCurrency = ({ value, onSave, readonly, label, tone }) => {
   const [val, setVal] = useState(value);
   useEffect(() => setVal(value), [value]);
 
@@ -66,7 +68,12 @@ const EditableCurrency = ({ value, onSave, readonly, label }) => {
     if (Number(val) !== Number(value)) onSave(Number(val));
   };
 
-  if (readonly) return <span className="font-bold text-slate-900 dark:text-white">{Number(value).toLocaleString("fr-FR")} €</span>;
+  const toneClass =
+    tone === "others"
+      ? "text-violet-700 dark:text-violet-300"
+      : "text-slate-900 dark:text-white";
+
+  if (readonly) return <span className={`font-bold ${toneClass}`}>{Number(value).toLocaleString("fr-FR")} €</span>;
 
   return (
     <div className="flex items-center justify-end gap-1 group">
@@ -80,7 +87,7 @@ const EditableCurrency = ({ value, onSave, readonly, label }) => {
         onBlur={handleBlur}
         onKeyDown={e => e.key === 'Enter' && e.target.blur()}
         aria-label={label}
-        className="w-20 bg-transparent py-1 text-right text-base outline-none font-black text-slate-900 dark:text-white border-b border-transparent group-hover:border-slate-300 focus:border-sky-500 transition-colors md:py-0 md:text-sm"
+        className={`w-20 bg-transparent py-1 text-right text-base outline-none font-black ${toneClass} border-b border-transparent group-hover:border-slate-300 focus:border-sky-500 transition-colors md:py-0 md:text-sm`}
       />
       <span className="text-slate-400 font-bold">€</span>
     </div>
@@ -143,6 +150,10 @@ const SOURCE_BADGE = {
   Préparation: "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
 };
 
+// Une ligne est "en attente" tant que personne (ni moi, ni les autres) n'a
+// rien payé alors qu'un montant est prévu.
+const isPendingRow = (row) => row.estimated > 0 && row.paid + row.others === 0;
+
 // Chiffres clés arrondis à l'euro : ils doivent tenir à trois sur un téléphone.
 const formatWholeEuros = (value) =>
   `${Math.round(Number(value) || 0).toLocaleString("fr-FR")} €`;
@@ -181,6 +192,7 @@ export default function PreparationPage({
     title: item.title,
     amount: Number(item.amount) || 0,
     payment: item.payment,
+    paidByOthers: Number(item.paidByOthers ?? item.paid_by_others) || 0,
     relatedTo: item.relatedTo || item.related_to || "",
     notes: item.notes || "",
     createdAt: item.createdAt || item.created_at || new Date().toISOString(),
@@ -266,17 +278,19 @@ export default function PreparationPage({
         // lignes ci-dessous, les inclure ici les compterait deux fois.
         estimated: Number(parent.budget_estimated) || 0,
         paid: Number(parent.budget_spent) || 0,
+        others: Number(parent.budget_others) || 0,
       });
 
       branchSteps.forEach((step) => {
         // Prix saisis dans les blocs Hébergement / Transport de l'onglet Logistique
         [
-          { rowType: "lodging", source: "Hébergement", info: step.lodging_info, estimated: step.lodging_price_estimated, paid: step.lodging_price_paid },
-          { rowType: "transport", source: "Transport", info: step.transport_info, estimated: step.transport_price_estimated, paid: step.transport_price_paid },
-        ].forEach(({ rowType, source, info, estimated, paid }) => {
+          { rowType: "lodging", source: "Hébergement", info: step.lodging_info, estimated: step.lodging_price_estimated, paid: step.lodging_price_paid, others: step.lodging_price_others },
+          { rowType: "transport", source: "Transport", info: step.transport_info, estimated: step.transport_price_estimated, paid: step.transport_price_paid, others: step.transport_price_others },
+        ].forEach(({ rowType, source, info, estimated, paid, others }) => {
           const estimatedValue = Number(estimated) || 0;
           const paidValue = Number(paid) || 0;
-          if (estimatedValue === 0 && paidValue === 0) return;
+          const othersValue = Number(others) || 0;
+          if (estimatedValue === 0 && paidValue === 0 && othersValue === 0) return;
           rows.push({
             id: `${rowType}-${step.id}`,
             rowType,
@@ -287,12 +301,14 @@ export default function PreparationPage({
             reference: step.city,
             estimated: estimatedValue,
             paid: paidValue,
+            others: othersValue,
           });
         });
 
         (step.activities || []).forEach((activity, index) => {
           const estimated = getActivityEstimatedPrice(activity);
           const paid = getActivityPaidPrice(activity);
+          const others = getActivityOthersPrice(activity);
           rows.push({
             id: `activity-${step.id}-${activity.id || index}`,
             rowType: "activity",
@@ -304,6 +320,7 @@ export default function PreparationPage({
             reference: activity.place || "Lieu",
             estimated,
             paid,
+            others,
           });
         });
       });
@@ -326,6 +343,7 @@ export default function PreparationPage({
           : "Voyage entier",
         estimated,
         paid,
+        others: Number(item.paidByOthers) || 0,
         payment: item.payment,
         relatedTo: item.relatedTo || "",
       });
@@ -346,6 +364,7 @@ export default function PreparationPage({
       country: '',
       estimated: 0,
       paid: 0,
+      others: 0,
       parentRow: null,
       children: []
     });
@@ -362,6 +381,7 @@ export default function PreparationPage({
         country: parent.country,
         estimated: 0,
         paid: 0,
+        others: 0,
         parentRow: null,
         children: []
       });
@@ -372,7 +392,7 @@ export default function PreparationPage({
     });
 
     budgetDetailRows.forEach(row => {
-      if (ledgerFilter === "pending" && !(row.estimated > 0 && row.paid === 0)) return;
+      if (ledgerFilter === "pending" && !isPendingRow(row)) return;
       if (ledgerFilter === "activities" && row.source !== "Activité") return;
       if (ledgerFilter === "preparation" && row.source !== "Préparation") return;
 
@@ -382,6 +402,7 @@ export default function PreparationPage({
           group.parentRow = row;
           group.estimated += row.estimated;
           group.paid += row.paid;
+          group.others += row.others;
         }
       } else if (row.rowType === 'activity' || row.rowType === 'lodging' || row.rowType === 'transport') {
         const groupId = stepToRootMap[row.stepId];
@@ -390,6 +411,7 @@ export default function PreparationPage({
           group.children.push(row);
           group.estimated += row.estimated;
           group.paid += row.paid;
+          group.others += row.others;
         }
       } else if (row.rowType === 'preparation') {
         let groupId = 'general';
@@ -401,6 +423,7 @@ export default function PreparationPage({
           group.children.push(row);
           group.estimated += row.estimated;
           group.paid += row.paid;
+          group.others += row.others;
         }
       }
     });
@@ -420,6 +443,7 @@ export default function PreparationPage({
           groups,
           estimated: groups.reduce((acc, group) => acc + group.estimated, 0),
           paid: groups.reduce((acc, group) => acc + group.paid, 0),
+          others: groups.reduce((acc, group) => acc + group.others, 0),
         };
       })
       .filter((segment) => segment.groups.length > 0);
@@ -487,6 +511,9 @@ export default function PreparationPage({
           <td className="px-4 py-3 align-middle text-right font-black text-slate-900 dark:text-white">
             {group.paid.toLocaleString("fr-FR")} €
           </td>
+          <td className={`px-4 py-3 align-middle text-right font-black ${group.others > 0 ? "text-violet-600 dark:text-violet-400" : "text-slate-300 dark:text-slate-600"}`}>
+            {group.others > 0 ? `${group.others.toLocaleString("fr-FR")} €` : "-"}
+          </td>
           <td className={`px-4 py-3 align-middle text-right font-black ${gap > 0 ? "text-amber-600 dark:text-amber-400" : gap < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
             {gap.toLocaleString("fr-FR")} €
           </td>
@@ -496,7 +523,7 @@ export default function PreparationPage({
         {/* LIGNES ENFANTS (DÉTAILS) */}
         {isExpanded && [group.parentRow, ...group.children].filter(Boolean).map(row => {
           const childGap = row.estimated - row.paid;
-          const isPending = row.estimated > 0 && row.paid === 0;
+          const isPending = isPendingRow(row);
 
           return (
             <tr key={row.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors group/row ${isPending ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
@@ -523,8 +550,8 @@ export default function PreparationPage({
                     readonly={isReadOnly}
                   />
                 ) : (
-                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.paid > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:text-emerald-300' : row.estimated > 0 ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/10 dark:text-amber-300' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300'}`}>
-                    {row.paid > 0 ? 'Payé' : row.estimated > 0 ? 'À compléter' : 'Neutre'}
+                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${row.paid > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/10 dark:text-emerald-300' : row.others > 0 ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-500/10 dark:text-violet-300' : row.estimated > 0 ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/10 dark:text-amber-300' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300'}`}>
+                    {row.paid > 0 ? 'Payé' : row.others > 0 ? 'Par d’autres' : row.estimated > 0 ? 'À compléter' : 'Neutre'}
                   </span>
                 )}
               </td>
@@ -536,6 +563,15 @@ export default function PreparationPage({
                   value={row.paid}
                   onSave={(val) => handleInlineEdit(row, 'paid', val)}
                   readonly={isReadOnly || row.rowType === 'preparation'}
+                />
+              </td>
+              <td className="px-4 py-3 align-middle text-right">
+                <EditableCurrency
+                  value={row.others}
+                  label={`Payé par d’autres, ${row.label}`}
+                  onSave={(val) => handleInlineEdit(row, 'others', val)}
+                  readonly={isReadOnly}
+                  tone="others"
                 />
               </td>
               <td className={`px-4 py-3 align-middle text-right font-black ${childGap > 0 ? "text-amber-600 dark:text-amber-400" : childGap < 0 ? "text-red-600 dark:text-red-400" : "text-slate-300 dark:text-slate-600"}`}>
@@ -555,9 +591,9 @@ export default function PreparationPage({
     );
   };
 
-  const pendingBudgetRows = budgetDetailRows.filter((row) => row.estimated > 0 && row.paid === 0);
-  const pendingBudgetValue = useMemo(() => budgetDetailRows.reduce((acc, row) => acc + Math.max(row.estimated - row.paid, 0), 0), [budgetDetailRows]);
-  const pendingActivityCount = useMemo(() => budgetDetailRows.filter((row) => row.source === "Activité" && row.estimated > 0 && row.paid === 0).length, [budgetDetailRows]);
+  const pendingBudgetRows = budgetDetailRows.filter(isPendingRow);
+  // Reste à régler : ce qui est prévu et que personne n'a encore payé.
+  const pendingBudgetValue = useMemo(() => budgetDetailRows.reduce((acc, row) => acc + Math.max(row.estimated - row.paid - row.others, 0), 0), [budgetDetailRows]);
 
   const totals = useMemo(() => {
     const categoryTotals = CATEGORY_ORDER.reduce((acc, cat) => ({ ...acc, [cat]: 0 }), {});
@@ -585,6 +621,11 @@ export default function PreparationPage({
     [items],
   );
 
+  const itemsOthersTotal = useMemo(
+    () => items.reduce((acc, item) => acc + (Number(item.paidByOthers) || 0), 0),
+    [items],
+  );
+
   // LOGIQUE D'ÉDITION INLINE "TABLEUR"
   const handleInlineEdit = async (row, field, value) => {
     if (isReadOnly) return;
@@ -592,12 +633,14 @@ export default function PreparationPage({
       const updates = {};
       if (field === 'estimated') updates.budget_estimated = value;
       if (field === 'paid') updates.budget_spent = value;
+      if (field === 'others') updates.budget_others = value;
       await updateStep(row.stepId, updates);
     }
     else if (row.rowType === "lodging" || row.rowType === "transport") {
       const updates = {};
       if (field === 'estimated') updates[`${row.rowType}_price_estimated`] = value;
       if (field === 'paid') updates[`${row.rowType}_price_paid`] = value;
+      if (field === 'others') updates[`${row.rowType}_price_others`] = value;
       if (Object.keys(updates).length > 0) await updateStep(row.stepId, updates);
     }
     else if (row.rowType === "activity") {
@@ -609,6 +652,7 @@ export default function PreparationPage({
           if (field === 'title') return { ...a, title: value };
           if (field === 'estimated') return { ...a, estimatedPrice: value };
           if (field === 'paid') return { ...a, price: value };
+          if (field === 'others') return { ...a, paidByOthers: value };
         }
         return a;
       });
@@ -620,6 +664,7 @@ export default function PreparationPage({
           if (field === 'title') return { ...item, title: value };
           if (field === 'estimated') return { ...item, amount: value };
           if (field === 'payment') return { ...item, payment: value };
+          if (field === 'others') return { ...item, paidByOthers: value };
         }
         return item;
       });
@@ -632,6 +677,7 @@ export default function PreparationPage({
         if (field === 'title') payload.title = value;
         if (field === 'estimated') payload.amount = value;
         if (field === 'payment') payload.payment = value;
+        if (field === 'others') payload.paid_by_others = value;
         await supabase.from("preparation_items").update(payload).eq("id", row.itemId);
       }
     }
@@ -690,7 +736,7 @@ export default function PreparationPage({
   // VERSION TÉLÉPHONE DU TABLEAU : cartes empilées
   // ==========================================
   const renderMobileRow = (row) => {
-    const isPending = row.estimated > 0 && row.paid === 0;
+    const isPending = isPendingRow(row);
     const titleReadonly =
       isReadOnly || row.rowType === "step" || row.rowType === "lodging" || row.rowType === "transport";
 
@@ -733,25 +779,23 @@ export default function PreparationPage({
           )}
         </div>
 
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <label className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 dark:bg-slate-900/60">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Estimé</span>
-            <EditableCurrency
-              value={row.estimated}
-              label={`Estimé, ${row.label}`}
-              onSave={(val) => handleInlineEdit(row, "estimated", val)}
-              readonly={isReadOnly}
-            />
-          </label>
-          <label className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-emerald-50/70 px-3 dark:bg-emerald-900/20">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Payé</span>
-            <EditableCurrency
-              value={row.paid}
-              label={`Payé, ${row.label}`}
-              onSave={(val) => handleInlineEdit(row, "paid", val)}
-              readonly={isReadOnly || row.rowType === "preparation"}
-            />
-          </label>
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          {[
+            { field: "estimated", label: "Estimé", value: row.estimated, box: "bg-slate-50 dark:bg-slate-900/60", text: "text-slate-500", readonly: isReadOnly },
+            { field: "paid", label: "Moi", value: row.paid, box: "bg-emerald-50/70 dark:bg-emerald-900/20", text: "text-emerald-600 dark:text-emerald-400", readonly: isReadOnly || row.rowType === "preparation" },
+            { field: "others", label: "Autres", value: row.others, box: "bg-violet-50/70 dark:bg-violet-900/20", text: "text-violet-600 dark:text-violet-400", readonly: isReadOnly, tone: "others" },
+          ].map((cell) => (
+            <label key={cell.field} className={`flex min-h-14 min-w-0 flex-col justify-center rounded-xl px-2 ${cell.box}`}>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${cell.text}`}>{cell.label}</span>
+              <EditableCurrency
+                value={cell.value}
+                label={`${cell.label}, ${row.label}`}
+                onSave={(val) => handleInlineEdit(row, cell.field, val)}
+                readonly={cell.readonly}
+                tone={cell.tone}
+              />
+            </label>
+          ))}
         </div>
       </div>
     );
@@ -762,7 +806,7 @@ export default function PreparationPage({
     // La ligne "étape" ne porte que les autres frais : inutile de l'afficher
     // quand elle est vide (elle se remplit depuis la fiche de l'étape).
     const rows = [group.parentRow, ...group.children].filter(
-      (row) => row && !(row.rowType === "step" && row.estimated === 0 && row.paid === 0),
+      (row) => row && !(row.rowType === "step" && row.estimated === 0 && row.paid === 0 && row.others === 0),
     );
     const isCurrent = group.id === currentStepId;
 
@@ -788,6 +832,9 @@ export default function PreparationPage({
           </span>
           <span className="shrink-0 text-right">
             <span className="block text-sm font-black text-slate-900 dark:text-white">{formatEuros(group.paid)}</span>
+            {group.others > 0 && (
+              <span className="block text-[11px] font-bold text-violet-600 dark:text-violet-400">+ {formatEuros(group.others)} autres</span>
+            )}
             <span className="block text-[11px] font-medium text-slate-400">prévu {formatEuros(group.estimated)}</span>
           </span>
         </button>
@@ -838,6 +885,11 @@ export default function PreparationPage({
                 <span>
                   <span className="block text-lg font-black leading-tight">{formatEuros(segment.paid)}</span>
                   <span className="block text-[11px] font-medium text-slate-400">payés sur {formatEuros(segment.estimated)}</span>
+                  {segment.others > 0 && (
+                    <span className="block text-[11px] font-bold text-violet-300">
+                      + {formatEuros(segment.others)} par d’autres · total {formatEuros(segment.paid + segment.others)}
+                    </span>
+                  )}
                 </span>
                 <span className={`text-right text-xs font-black ${segmentGap > 0 ? "text-amber-400" : segmentGap < 0 ? "text-red-400" : "text-emerald-400"}`}>
                   <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Écart</span>
@@ -873,10 +925,12 @@ export default function PreparationPage({
   // pour afficher un seul total cohérent au lieu de le fragmenter.
   const combinedBudget = tripBudget + totals.total;
   const combinedPaid = tripSpent + itemsPaidTotal;
+  const combinedOthers = getTripOthersTotal(steps) + itemsOthersTotal;
+  const combinedTotal = combinedPaid + combinedOthers;
 
   const summaryCards = [
     { label: "Budget estimé", value: formatWholeEuros(combinedBudget), tone: "sky", note: "Étapes, activités et frais généraux" },
-    { label: "Déjà payé", value: formatWholeEuros(combinedPaid), tone: "emerald", note: "Ce qui a réellement été payé" },
+    { label: "Déjà payé", value: formatWholeEuros(combinedPaid), tone: "emerald", note: "Ce que tu as payé toi-même" },
     { label: "À compléter", value: formatWholeEuros(pendingBudgetValue), tone: "amber", note: `${pendingBudgetRows.length} lignes sans paiement réel` },
   ];
 
@@ -928,6 +982,29 @@ export default function PreparationPage({
           ))}
         </div>
 
+        {/* COÛT TOTAL : ma part + ce que d'autres (parents, ami...) ont payé */}
+        {combinedOthers > 0 && (
+          <div className="rounded-2xl border border-violet-100 bg-violet-50/80 p-4 shadow-sm dark:border-violet-900/40 dark:bg-violet-500/10 sm:rounded-[28px] sm:p-5">
+            <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.18em]">Coût total du voyage</p>
+                <p className="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{formatWholeEuros(combinedTotal)}</p>
+              </div>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                Toi <span className="font-black text-emerald-600 dark:text-emerald-400">{formatWholeEuros(combinedPaid)}</span>
+                {" · "}Autres <span className="font-black text-violet-600 dark:text-violet-400">{formatWholeEuros(combinedOthers)}</span>
+              </p>
+            </div>
+            <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-white/70 dark:bg-slate-900/60" aria-hidden="true">
+              <span className="block h-full bg-emerald-500" style={{ width: `${combinedTotal > 0 ? (combinedPaid / combinedTotal) * 100 : 0}%` }} />
+              <span className="block h-full bg-violet-500" style={{ width: `${combinedTotal > 0 ? (combinedOthers / combinedTotal) * 100 : 0}%` }} />
+            </div>
+            <p className="mt-2 hidden text-xs text-slate-500 dark:text-slate-400 sm:block">
+              Ce que vous avez dépensé à plusieurs. Ton budget et ton « Déjà payé » ne comptent que ta part.
+            </p>
+          </div>
+        )}
+
         {/* Déjà présent sur l'onglet Itinéraire : inutile de le répéter sur téléphone */}
         <div className="hidden lg:block">
           <TripSummary steps={steps} visaStats={{}} totalDistance={0} />
@@ -971,7 +1048,7 @@ export default function PreparationPage({
           {!isTable ? renderMobileLedger() : (
           <div className="overflow-hidden rounded-3xl border border-slate-200/80 dark:border-slate-700">
             <div className="max-h-[600px] overflow-auto overscroll-contain">
-              <table className="min-w-[800px] w-full border-collapse text-left text-sm">
+              <table className="min-w-[920px] w-full border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 bg-slate-950/95 text-slate-100 backdrop-blur">
                   <tr className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300">
                     <th className="px-4 py-4 w-10"></th>
@@ -979,7 +1056,8 @@ export default function PreparationPage({
                     <th className="px-4 py-4">Intitulé</th>
                     <th className="px-4 py-4 w-40 text-center">Statut</th>
                     <th className="px-4 py-4 w-32 text-right">Estimé</th>
-                    <th className="px-4 py-4 w-32 text-right">Payé</th>
+                    <th className="px-4 py-4 w-32 whitespace-nowrap text-right">Payé (moi)</th>
+                    <th className="px-4 py-4 w-36 whitespace-nowrap text-right text-violet-300">Payé (autres)</th>
                     <th className="px-4 py-4 w-32 text-right text-sky-300">Écart</th>
                     <th className="px-4 py-4 w-16 text-center"></th>
                   </tr>
@@ -1015,6 +1093,9 @@ export default function PreparationPage({
                           </td>
                           <td className="px-4 py-4 align-middle text-right text-base font-black">
                             {segment.paid.toLocaleString("fr-FR")} €
+                          </td>
+                          <td className={`px-4 py-4 align-middle text-right text-base font-black ${segment.others > 0 ? "text-violet-300" : "text-slate-500"}`}>
+                            {segment.others > 0 ? `${segment.others.toLocaleString("fr-FR")} €` : "-"}
                           </td>
                           <td className={`px-4 py-4 align-middle text-right text-base font-black ${segmentGap > 0 ? "text-amber-400" : segmentGap < 0 ? "text-red-400" : "text-emerald-400"}`}>
                             {segmentGap.toLocaleString("fr-FR")} €
